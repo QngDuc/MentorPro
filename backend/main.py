@@ -1,5 +1,6 @@
 import os
 import io
+from urllib import response
 from fastapi import FastAPI, UploadFile, File, Form, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from dotenv import load_dotenv
@@ -46,6 +47,30 @@ def health_check():
     return {"status": "MentorPro Backend is live!"}
 
 # --- CHỨC NĂNG CHAT ---
+async def chat_api(message: str = Form(...), user_id: str = Form(...)):
+    try:
+        # 1. Gửi tin nhắn đến Gemini
+        response = model.generate_content(message)
+        reply_text = response.text
+
+        # 2. Lưu cuộc trò chuyện vào Supabase
+        data = {
+            "user_id": user_id,
+            "content": message,
+            "role": "user"
+        }
+        supabase.table("messages").insert(data).execute()
+
+        ai_data = {
+            "user_id": user_id,
+            "content": reply_text,
+            "role": "assistant"
+        }
+        supabase.table("messages").insert(ai_data).execute()
+
+        return {"reply": reply_text}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 # --- CHỨC NĂNG OCR (Đọc văn bản qua ảnh) ---
 @app.post("/ocr")

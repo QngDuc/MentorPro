@@ -8,7 +8,7 @@ from supabase import create_client, Client
 from PIL import Image
 
 # 1. Load cấu hình
-load_dotenv()
+load_dotenv("../.env")
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 
 if not GEMINI_API_KEY:
@@ -34,10 +34,10 @@ app.add_middleware(
 
 # 4. Cấu hình Supabase
 url: str = os.getenv("SUPABASE_URL", "") 
-key: str = os.getenv("SUPABASE_KEY", "") # Đảm bảo biến này khớp với .env của bạn
+key: str = os.getenv("SUPABASE_ANON_KEY", "") # Đảm bảo biến này khớp với .env của bạn
 
 if not url or not key:
-    raise ValueError("Thiếu SUPABASE_URL hoặc SUPABASE_KEY trong file .env!")
+    raise ValueError("Thiếu SUPABASE_URL hoặc SUPABASE_ANON_KEY trong file .env!")
 supabase: Client = create_client(url, key)
 
 @app.get("/")

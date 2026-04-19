@@ -1,6 +1,5 @@
 import os
 import io
-from urllib import response
 from fastapi import FastAPI, UploadFile, File, Form, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from dotenv import load_dotenv
@@ -18,15 +17,14 @@ if not GEMINI_API_KEY:
 # 2. Cấu hình Gemini
 genai.configure(api_key=GEMINI_API_KEY) #type: ignore
 
-# Sử dụng model flash để tốc độ nhanh nhất (phù hợp tư vấn thời gian thực)
-model = genai.GenerativeModel(  #type: ignore
+model = genai.GenerativeModel( #type: ignore
     model_name="gemini-1.5-flash",
     system_instruction="Bạn là MentorPro, một người bạn thân thiết, tâm lý và thông minh. Hãy tư vấn cho người dùng một cách chân thành, sử dụng ngôn ngữ gần gũi như bạn bè."
 )
 
 app = FastAPI()
 
-# 3. Cho phép Frontend kết nối (CORS)
+# 3. CORS
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -36,60 +34,57 @@ app.add_middleware(
 
 # 4. Cấu hình Supabase
 url: str = os.getenv("SUPABASE_URL", "") 
-key: str = os.getenv("SUPABASE_KEY", "")
+key: str = os.getenv("SUPABASE_KEY", "") # Đảm bảo biến này khớp với .env của bạn
+
 if not url or not key:
     raise ValueError("Thiếu SUPABASE_URL hoặc SUPABASE_KEY trong file .env!")
 supabase: Client = create_client(url, key)
-
 
 @app.get("/")
 def health_check():
     return {"status": "MentorPro Backend is live!"}
 
-# --- CHỨC NĂNG CHAT ---
+# --- CHỨC NĂNG CHAT (Đã thêm Decorator) ---
+@app.post("/chat")
 async def chat_api(message: str = Form(...), user_id: str = Form(...)):
     try:
         # 1. Gửi tin nhắn đến Gemini
-        response = model.generate_content(message)
-        reply_text = response.text
+        ai_response = model.generate_content(message)
+        reply_text = ai_response.text
 
-        # 2. Lưu cuộc trò chuyện vào Supabase
-        data = {
+        # 2. Lưu vào Supabase (User)
+        supabase.table("messages").insert({
             "user_id": user_id,
             "content": message,
             "role": "user"
-        }
-        supabase.table("messages").insert(data).execute()
+        }).execute()
 
-        ai_data = {
+        # 3. Lưu vào Supabase (AI)
+        supabase.table("messages").insert({
             "user_id": user_id,
             "content": reply_text,
             "role": "assistant"
-        }
-        supabase.table("messages").insert(ai_data).execute()
+        }).execute()
 
         return {"reply": reply_text}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
-# --- CHỨC NĂNG OCR (Đọc văn bản qua ảnh) ---
+# --- CHỨC NĂNG OCR ---
 @app.post("/ocr")
 async def ocr_api(file: UploadFile = File(...)):
     try:
-        # Đọc file ảnh từ request
         img_data = await file.read()
         img = Image.open(io.BytesIO(img_data))
         
-        # Gửi ảnh cho Gemini kèm câu lệnh trích xuất
         prompt = "Hãy đọc và trích xuất toàn bộ văn bản có trong ảnh này một cách chính xác nhất."
-        response = model.generate_content([prompt, img])
+        ocr_response = model.generate_content([prompt, img])
         
-        return {"text": response.text}
+        return {"text": ocr_response.text}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
 if __name__ == "__main__":
     import uvicorn
-    # Chạy server ở port 8000
     port = int(os.environ.get("PORT", 8000))
     uvicorn.run(app, host="0.0.0.0", port=port)

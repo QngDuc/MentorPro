@@ -1,11 +1,15 @@
 import os
 import io
-from fastapi import FastAPI, UploadFile, File, Form, HTTPException
+from fastapi import FastAPI, UploadFile, File, Form, HTTPException, Depends
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 from dotenv import load_dotenv
+import time
+from datetime import datetime
+import re
 import google.generativeai as genai
 from supabase import create_client, Client
-from PIL import Image
+from PIL import Image # type: ignore
 
 # 1. Load cấu hình
 load_dotenv("../.env")
@@ -24,13 +28,30 @@ model = genai.GenerativeModel( #type: ignore
 
 app = FastAPI()
 
-# 3. CORS
+# 3. CORS - Cụ thể hóa cho bảo mật
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
-    allow_methods=["*"],
+    allow_origins=["http://localhost:3000", "https://mentorpro.com"],  # Chỉ định rõ origin
+    allow_methods=["GET", "POST"],
     allow_headers=["*"],
+    allow_credentials=True
 )
+
+# 4. Rate limiting đơn giản cho người trẻ
+user_requests = {}
+MAX_REQUESTS_PER_MINUTE = 10
+
+def check_rate_limit(user_id: str):
+    now = time.time()
+    if user_id not in user_requests:
+        user_requests[user_id] = []
+    
+    user_requests[user_id] = [t for t in user_requests[user_id] if now - t < 60]
+    
+    if len(user_requests[user_id]) >= MAX_REQUESTS_PER_MINUTE:
+        raise HTTPException(status_code=429, detail="Bạn chat quá nhanh! Hãy chờ một chút 😊")
+    
+    user_requests[user_id].append(now)
 
 # 4. Cấu hình Supabase
 url: str = os.getenv("SUPABASE_URL", "") 
@@ -48,27 +69,61 @@ def health_check():
 @app.post("/chat")
 async def chat_api(message: str = Form(...), user_id: str = Form(...)):
     try:
+        # Validate input
+        message = message.strip()
+        if not message or len(message) > 2000:
+            raise HTTPException(status_code=400, detail="Tin nhắn phải từ 1-2000 ký tự")
+        
+        if not user_id or len(user_id) > 50:
+            raise HTTPException(status_code=400, detail="User ID không hợp lệ")
+        
+        # Rate limiting
+        check_rate_limit(user_id)
+        
         # 1. Gửi tin nhắn đến Gemini
         ai_response = model.generate_content(message)
         reply_text = ai_response.text
+        
+        timestamp = datetime.now().isoformat()
+        message_id = f"{user_id}_{int(time.time() * 1000)}"
 
         # 2. Lưu vào Supabase (User)
         supabase.table("messages").insert({
             "user_id": user_id,
             "content": message,
-            "role": "user"
+            "role": "user",
+            "created_at": timestamp
         }).execute()
 
         # 3. Lưu vào Supabase (AI)
         supabase.table("messages").insert({
             "user_id": user_id,
             "content": reply_text,
-            "role": "assistant"
+            "role": "assistant",
+            "created_at": timestamp
         }).execute()
 
-        return {"reply": reply_text}
+        return {
+            "reply": reply_text,
+            "timestamp": timestamp,
+            "message_id": message_id
+        }
+    except HTTPException:
+        raise
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail="Oops! Có lỗi xảy ra. Hãy thử lại nhé 😔")
+
+# Endpoint mới: Xem lịch sử chat
+@app.get("/chat-history/{user_id}")
+async def get_chat_history(user_id: str):
+    try:
+        if not user_id or len(user_id) > 50:
+            raise HTTPException(status_code=400, detail="User ID không hợp lệ")
+        
+        response = supabase.table("messages").select("*").eq("user_id", user_id).order("created_at", desc=False).execute()
+        return {"history": response.data}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail="Không thể lấy lịch sử chat")
 
 # --- CHỨC NĂNG OCR ---
 @app.post("/ocr")

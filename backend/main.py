@@ -1,19 +1,21 @@
 # --- IMPORTS ---
 import os
 import io
+import time
+from datetime import datetime, timedelta
 from fastapi import FastAPI, UploadFile, File, Form, HTTPException, Depends
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from fastapi.security import HTTPBearer
 from dotenv import load_dotenv
-import time
-from datetime import datetime, timedelta
 import jwt
-from pydantic import BaseModel
-import google.generativeai as genai 
+from pydantic import BaseModel, EmailStr
+import google.generativeai as genai
 
-from PIL import Image # type: ignore
+from PIL import Image  # type: ignore
 from textblob import TextBlob
+import bcrypt
+from starlette.middleware.base import BaseHTTPMiddleware
 import hashlib
 
 # --- CẤU HÌNH MÔI TRƯỜNG ---
@@ -33,6 +35,10 @@ JWT_EXPIRATION_HOURS = 24  # Token hết hạn sau 24 giờ
 MAX_REQUESTS_PER_MINUTE = 10  # Tối đa 10 requests per minute
 user_requests = {}  # Lưu số request của mỗi user: {user_id: [timestamp1, timestamp2, ...]}
 
+# File upload limits
+# Set maximum uploaded file size to 10 MB for OCR and similar endpoints
+MAX_FILE_SIZE_BYTES = 10 * 1024 * 1024  # 10 MB
+
 # Debug: In ra giá trị env variables
 print(f"Debug GEMINI_API_KEY: {GEMINI_API_KEY[:20] if GEMINI_API_KEY else 'NOT SET'}...")
 
@@ -46,14 +52,16 @@ if not GEMINI_API_KEY:
 class UserRegister(BaseModel):
     """Model đăng ký người dùng mới"""
     username: str  # Tên đăng nhập
-    email: str  # Email
+    email: EmailStr  # Email
     password: str  # Mật khẩu
     full_name: str = ""  # Tên đầy đủ (tuỳ chọn)
 
+
 class UserLogin(BaseModel):
     """Model đăng nhập"""
-    email: str  # Email
+    email: EmailStr  # Email
     password: str  # Mật khẩu
+
 
 class UserProfile(BaseModel):
     """Model cập nhật hồ sơ người dùng"""
@@ -61,20 +69,24 @@ class UserProfile(BaseModel):
     category: str = ""  # Danh mục tư vấn: "tâm lý", "học tập", "sự nghiệp"...
     preferences: dict = {}  # Lưu các sở thích khác
 
+
 class ChatMessage(BaseModel):
     """Model tin nhắn chat"""
     message: str  # Nội dung tin nhắn
+
 
 # --- UTILITY FUNCTIONS (Các hàm hỗ trợ) ---
 
 # *** JWT & Xác thực ***
 def hash_password(password: str) -> str:
     """
-    Mã hóa mật khẩu bằng SHA256
+    Mã hóa mật khẩu bằng bcrypt (với salt tự động)
     Input: password (str) - mật khẩu plaintext
-    Output: hash (str) - mật khẩu đã mã hóa
+    Output: hash (str) - mật khẩu đã mã hóa (utf-8 string)
     """
-    return hashlib.sha256(password.encode()).hexdigest()
+    hashed = bcrypt.hashpw(password.encode("utf-8"), bcrypt.gensalt())
+    return hashed.decode("utf-8")
+
 
 def create_access_token(user_id: str) -> str:
     """
@@ -87,6 +99,7 @@ def create_access_token(user_id: str) -> str:
         "exp": datetime.utcnow() + timedelta(hours=JWT_EXPIRATION_HOURS)  # Thời gian hết hạn
     }
     return jwt.encode(payload, JWT_SECRET_KEY, algorithm=JWT_ALGORITHM)
+
 
 def verify_token(token: str) -> dict:
     """
@@ -232,6 +245,21 @@ app = FastAPI(
     version="1.0.0"
 )
 
+
+# Security headers middleware
+class SecurityHeadersMiddleware(BaseHTTPMiddleware):
+    async def dispatch(self, request, call_next):
+        response = await call_next(request)
+        response.headers["X-Frame-Options"] = "DENY"
+        response.headers["X-Content-Type-Options"] = "nosniff"
+        response.headers["Referrer-Policy"] = "no-referrer"
+        response.headers["Permissions-Policy"] = "geolocation=()"
+        response.headers["X-XSS-Protection"] = "1; mode=block"
+        return response
+
+
+app.add_middleware(SecurityHeadersMiddleware)
+
 # *** Cấu hình Security ***
 security = HTTPBearer()  # Bearer token authentication
 
@@ -369,9 +397,13 @@ async def login(credentials: UserLogin):
         if not user:
             raise HTTPException(status_code=401, detail="Email hoặc mật khẩu không đúng")
         
-        # So sánh mật khẩu đã mã hóa
-        hashed_password = hash_password(credentials.password)
-        if user["password_hash"] != hashed_password:
+        # So sánh mật khẩu đã mã hóa bằng bcrypt
+        try:
+            stored_hash = user.get("password_hash", "")
+            if not stored_hash or not bcrypt.checkpw(credentials.password.encode('utf-8'), stored_hash.encode('utf-8')):
+                raise HTTPException(status_code=401, detail="Email hoặc mật khẩu không đúng")
+        except ValueError:
+            # bcrypt may raise ValueError if stored hash is malformed
             raise HTTPException(status_code=401, detail="Email hoặc mật khẩu không đúng")
         
         # Tạo JWT token
@@ -689,6 +721,9 @@ async def ocr_api(file: UploadFile = File(...), current_user: dict = Depends(get
         
         # === BƯỚC 2: ĐỌC FILE ===
         img_data = await file.read()
+        # Kiểm tra kích thước file để tránh upload quá lớn
+        if len(img_data) > MAX_FILE_SIZE_BYTES:
+            raise HTTPException(status_code=413, detail="File quá lớn. Kích thước tối đa 10MB")
         img = Image.open(io.BytesIO(img_data))
         
         # === BƯỚC 3: GỬI ĐẾN GEMINI AI ĐỂ TRÍCH XUẤT CHỮA ===

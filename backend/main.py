@@ -1,41 +1,40 @@
-# ============================================================================
-# MentorPro Backend - Trang Web Tư Vấn Trí Tuệ Nhân Tạo
-# ============================================================================
-# Các chức năng chính:
-# - Xác thực người dùng (JWT)
-# - Chat với AI (Gemini)
-# - Phân tích cảm xúc (Sentiment Analysis)
-# - Tóm tắt hội thoại tự động
-# - OCR (nhận dạng chữ từ ảnh)
-# ============================================================================
-
 # --- IMPORTS ---
 import os
 import io
 from fastapi import FastAPI, UploadFile, File, Form, HTTPException, Depends
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
-from fastapi.security import HTTPBearer, HTTPAuthCredentials
+from fastapi.security import HTTPBearer
 from dotenv import load_dotenv
 import time
 from datetime import datetime, timedelta
 import jwt
 from pydantic import BaseModel
-import google.generativeai as genai
-from supabase import create_client, Client
+import google.generativeai as genai 
+
 from PIL import Image # type: ignore
 from textblob import TextBlob
 import hashlib
 
 # --- CẤU HÌNH MÔI TRƯỜNG ---
-# Tải biến môi trường từ file .env
-load_dotenv("../.env")
+# Tải biến môi trường từ file .env (ở thư mục cha)
+import os.path
+env_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), ".env")
+print(f"Looking for .env at: {env_path}")
+load_dotenv(env_path)
 
 # API Keys & Cấu hình JWT
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")  # Key của Google Gemini AI
 JWT_SECRET_KEY = os.getenv("JWT_SECRET_KEY", "your-secret-key-change-in-production")  # Thay đổi trong production
 JWT_ALGORITHM = "HS256"  # Thuật toán mã hóa JWT
 JWT_EXPIRATION_HOURS = 24  # Token hết hạn sau 24 giờ
+
+# Rate Limiting Configuration
+MAX_REQUESTS_PER_MINUTE = 10  # Tối đa 10 requests per minute
+user_requests = {}  # Lưu số request của mỗi user: {user_id: [timestamp1, timestamp2, ...]}
+
+# Debug: In ra giá trị env variables
+print(f"Debug GEMINI_API_KEY: {GEMINI_API_KEY[:20] if GEMINI_API_KEY else 'NOT SET'}...")
 
 # Kiểm tra GEMINI_API_KEY bắt buộc
 if not GEMINI_API_KEY:
@@ -201,12 +200,28 @@ model = genai.GenerativeModel(
 SUPABASE_URL = os.getenv("SUPABASE_URL", "")
 SUPABASE_KEY = os.getenv("SUPABASE_ANON_KEY", "")
 
+# Mock Database for Testing
+mock_db = {
+    "users": {},
+    "messages": {},
+    "ocr_logs": {}
+}
+
 # Kiểm tra các biến môi trường bắt buộc
 if not SUPABASE_URL or not SUPABASE_KEY:
-    raise ValueError("Thiếu SUPABASE_URL hoặc SUPABASE_ANON_KEY trong file .env!")
-
-# Khởi tạo Supabase client
-supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
+    print("⚠️  Cảnh báo: Thiếu SUPABASE_URL hoặc SUPABASE_ANON_KEY trong file .env!")
+    print("Backend sẽ chạy nhưng database endpoints sẽ không hoạt động.")
+    supabase = None
+else:
+    # Khởi tạo Supabase client
+    try:
+        from supabase import create_client
+        supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
+        print("✅ Kết nối Supabase thành công")
+    except Exception as e:
+        print(f"❌ Lỗi kết nối Supabase: {e}")
+        print("Sử dụng mock database để test API")
+        supabase = None
 
 # --- KHỞI TẠO FASTAPI APP ---
 
@@ -221,7 +236,7 @@ app = FastAPI(
 security = HTTPBearer()  # Bearer token authentication
 
 # Dependency: Lấy người dùng hiện tại từ token
-async def get_current_user(credentials: HTTPAuthCredentials = Depends(security)) -> dict:
+async def get_current_user(credentials = Depends(security)) -> dict:
     """
     Dependency để kiểm tra JWT token
     Dùng trong các endpoint cần xác thực
@@ -265,26 +280,47 @@ async def register(user_data: UserRegister):
         if len(user_data.password) < 6:
             raise HTTPException(status_code=400, detail="Mật khẩu phải có ít nhất 6 ký tự")
         
-        # Kiểm tra xem email đã tồn tại chưa
-        existing = supabase.table("users").select("*").eq("email", user_data.email).execute()
-        if existing.data:
-            raise HTTPException(status_code=400, detail="Email đã được đăng ký")
+        # Tạo ID người dùng (timestamp-based)
+        user_id = f"user_{int(time.time() * 1000)}"
         
         # Mã hóa mật khẩu
         hashed_password = hash_password(user_data.password)
         
-        # Tạo ID người dùng (timestamp-based)
-        user_id = f"user_{int(time.time() * 1000)}"
-        
-        # Lưu người dùng mới vào database
-        supabase.table("users").insert({
+        user_record = {
             "user_id": user_id,
             "username": user_data.username,
             "email": user_data.email,
             "password_hash": hashed_password,
             "full_name": user_data.full_name,
-            "created_at": datetime.now().isoformat()
-        }).execute()
+            "created_at": datetime.now().isoformat(),
+            "category": "General",
+            "preferences": {}
+        }
+        
+        # Try Supabase first, fall back to mock database
+        if supabase:
+            try:
+                # Kiểm tra xem email đã tồn tại chưa
+                existing = supabase.table("users").select("*").eq("email", user_data.email).execute()
+                if existing.data:
+                    raise HTTPException(status_code=400, detail="Email đã được đăng ký")
+                
+                # Lưu vào Supabase
+                supabase.table("users").insert(user_record).execute()
+                print(f"✅ User registered in Supabase: {user_id}")
+            except HTTPException:
+                raise
+            except Exception as e:
+                # Fall back to mock database if Supabase fails
+                print(f"⚠️  Supabase error: {e}, using mock database")
+                if user_data.email in [u["email"] for u in mock_db["users"].values()]:
+                    raise HTTPException(status_code=400, detail="Email đã được đăng ký")
+                mock_db["users"][user_id] = user_record
+        else:
+            # Use mock database
+            if user_data.email in [u["email"] for u in mock_db["users"].values()]:
+                raise HTTPException(status_code=400, detail="Email đã được đăng ký")
+            mock_db["users"][user_id] = user_record
         
         # Tạo JWT token
         token = create_access_token(user_id)
@@ -292,11 +328,12 @@ async def register(user_data: UserRegister):
         return {
             "message": "Đăng ký thành công!",
             "user_id": user_id,
-            "token": token
+            "access_token": token
         }
     except HTTPException:
         raise
     except Exception as e:
+        print(f"❌ Register error: {e}")
         raise HTTPException(status_code=500, detail="Lỗi đăng ký người dùng")
 
 @app.post("/login")
@@ -311,13 +348,26 @@ async def login(credentials: UserLogin):
         - 500: Lỗi server
     """
     try:
-        # Tìm kiếm người dùng theo email
-        response = supabase.table("users").select("*").eq("email", credentials.email).execute()
+        user = None
         
-        if not response.data:
+        # Try Supabase first, fall back to mock database
+        if supabase:
+            try:
+                response = supabase.table("users").select("*").eq("email", credentials.email).execute()
+                if response.data:
+                    user = response.data[0]
+            except Exception as e:
+                print(f"⚠️  Supabase error during login: {e}, using mock database")
+        
+        # Search in mock database if not found in Supabase
+        if not user:
+            for u in mock_db["users"].values():
+                if u["email"] == credentials.email:
+                    user = u
+                    break
+        
+        if not user:
             raise HTTPException(status_code=401, detail="Email hoặc mật khẩu không đúng")
-        
-        user = response.data[0]
         
         # So sánh mật khẩu đã mã hóa
         hashed_password = hash_password(credentials.password)
@@ -330,12 +380,13 @@ async def login(credentials: UserLogin):
         return {
             "message": "Đăng nhập thành công!",
             "user_id": user["user_id"],
-            "token": token,
+            "access_token": token,
             "full_name": user.get("full_name", "")
         }
     except HTTPException:
         raise
     except Exception as e:
+        print(f"❌ Login error: {e}")
         raise HTTPException(status_code=500, detail="Lỗi đăng nhập")
 
 
@@ -357,13 +408,23 @@ async def get_profile(current_user: dict = Depends(get_current_user)):
         # Lấy user_id từ token
         user_id = current_user["user_id"]
         
-        # Truy vấn database
-        response = supabase.table("users").select("*").eq("user_id", user_id).execute()
+        user = None
         
-        if not response.data:
+        # Try Supabase first, fall back to mock database
+        if supabase:
+            try:
+                response = supabase.table("users").select("*").eq("user_id", user_id).execute()
+                if response.data:
+                    user = response.data[0]
+            except Exception as e:
+                print(f"⚠️  Supabase error during get_profile: {e}, using mock database")
+        
+        # Search in mock database if not found
+        if not user:
+            user = mock_db["users"].get(user_id)
+        
+        if not user:
             raise HTTPException(status_code=404, detail="Người dùng không tìm thấy")
-        
-        user = response.data[0]
         
         # Trả về thông tin người dùng
         return {
@@ -371,13 +432,14 @@ async def get_profile(current_user: dict = Depends(get_current_user)):
             "username": user["username"],
             "email": user["email"],
             "full_name": user.get("full_name", ""),
-            "category": user.get("category", ""),  # Danh mục tư vấn
-            "preferences": user.get("preferences", {}),  # Các sở thích
+            "category": user.get("category", ""),
+            "preferences": user.get("preferences", {}),
             "created_at": user.get("created_at")
         }
     except HTTPException:
         raise
     except Exception as e:
+        print(f"❌ Get profile error: {e}")
         raise HTTPException(status_code=500, detail="Không thể lấy hồ sơ người dùng")
 
 @app.put("/user/profile")
@@ -396,16 +458,30 @@ async def update_profile(profile: UserProfile, current_user: dict = Depends(get_
         # Lấy user_id từ token
         user_id = current_user["user_id"]
         
-        # Cập nhật database
-        supabase.table("users").update({
+        update_data = {
             "full_name": profile.full_name,
-            "category": profile.category,  # Ví dụ: "tâm lý", "học tập", "sự nghiệp"
+            "category": profile.category,
             "preferences": profile.preferences,
             "updated_at": datetime.now().isoformat()
-        }).eq("user_id", user_id).execute()
+        }
+        
+        # Try Supabase first, fall back to mock database
+        if supabase:
+            try:
+                supabase.table("users").update(update_data).eq("user_id", user_id).execute()
+                print(f"✅ User profile updated in Supabase: {user_id}")
+            except Exception as e:
+                print(f"⚠️  Supabase error during update_profile: {e}, using mock database")
+                if user_id in mock_db["users"]:
+                    mock_db["users"][user_id].update(update_data)
+        else:
+            # Use mock database
+            if user_id in mock_db["users"]:
+                mock_db["users"][user_id].update(update_data)
         
         return {"message": "Cập nhật hồ sơ thành công!"}
     except Exception as e:
+        print(f"❌ Update profile error: {e}")
         raise HTTPException(status_code=500, detail="Lỗi cập nhật hồ sơ")
 
 
@@ -460,35 +536,58 @@ async def chat_api(message: str = Form(...), current_user: dict = Depends(get_cu
         timestamp = datetime.now().isoformat()
         message_id = f"{user_id}_{int(time.time() * 1000)}"
 
-        # === BƯỚC 7: LƯU TIN NHẮN NGƯỜI DÙNG VÀO DATABASE ===
-        supabase.table("messages").insert({
+        # === BƯỚC 7: LƯU TIN NHẮN VÀO DATABASE ===
+        user_msg = {
             "user_id": user_id,
-            "content": message,  # Nội dung tin nhắn
-            "role": "user",  # Ai gửi (user hoặc assistant)
-            "sentiment": user_sentiment,  # Thông tin cảm xúc
+            "message_id": f"{message_id}_user",
+            "content": message,
+            "role": "user",
+            "sentiment": user_sentiment,
             "created_at": timestamp
-        }).execute()
-
-        # === BƯỚC 8: LƯU PHẢN HỒI AI VÀO DATABASE ===
-        supabase.table("messages").insert({
+        }
+        
+        ai_msg = {
             "user_id": user_id,
-            "content": reply_text,  # Nội dung phản hồi
-            "role": "assistant",  # Phản hồi từ AI
-            "sentiment": ai_sentiment,  # Thông tin cảm xúc
+            "message_id": f"{message_id}_ai",
+            "content": reply_text,
+            "role": "assistant",
+            "sentiment": ai_sentiment,
             "created_at": timestamp
-        }).execute()
+        }
+        
+        # Try Supabase first, fall back to mock database
+        if supabase:
+            try:
+                supabase.table("messages").insert(user_msg).execute()
+                supabase.table("messages").insert(ai_msg).execute()
+                print(f"✅ Chat messages saved to Supabase: {user_id}")
+            except Exception as e:
+                print(f"⚠️  Supabase error during chat: {e}, using mock database")
+                if user_id not in mock_db["messages"]:
+                    mock_db["messages"][user_id] = []
+                mock_db["messages"][user_id].append(user_msg)
+                mock_db["messages"][user_id].append(ai_msg)
+        else:
+            # Use mock database
+            if user_id not in mock_db["messages"]:
+                mock_db["messages"][user_id] = []
+            mock_db["messages"][user_id].append(user_msg)
+            mock_db["messages"][user_id].append(ai_msg)
 
         # === BƯỚC 9: TRẢ VỀ PHẢN HỒI CHO CLIENT ===
         return {
-            "reply": reply_text,  # Phản hồi từ AI
-            "timestamp": timestamp,  # Thời gian tạo
-            "message_id": message_id,  # ID tin nhắn
-            "user_sentiment": user_sentiment,  # Cảm xúc người dùng
-            "ai_sentiment": ai_sentiment  # Cảm xúc AI
+            "ai_response": reply_text,
+            "timestamp": timestamp,
+            "message_id": message_id,
+            "sentiment": {
+                "user_sentiment": user_sentiment,
+                "ai_sentiment": ai_sentiment
+            }
         }
     except HTTPException:
         raise
     except Exception as e:
+        print(f"❌ Chat error: {e}")
         raise HTTPException(status_code=500, detail="Oops! Có lỗi xảy ra. Hãy thử lại nhé 😔")
 
 @app.get("/chat-history")
@@ -643,8 +742,8 @@ if __name__ == "__main__":
     
     # Chạy server
     uvicorn.run(
-        app,
+        "main:app",  # Import string format để enable reload
         host="0.0.0.0",  # Lắng nghe trên tất cả network interfaces
         port=port,
-        reload=True  # Tự động reload khi có thay đổi (dành cho development)
+        reload=False  # Tắt reload để avoid warning, bật khi develop
     )

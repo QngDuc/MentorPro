@@ -640,13 +640,22 @@ async def get_chat_history(current_user: dict = Depends(get_current_user)):
     try:
         # Lấy user_id từ token
         user_id = current_user["user_id"]
-        
+
         # Truy vấn tất cả tin nhắn của user, sắp xếp theo thời gian
-        response = supabase.table("messages").select("*").eq("user_id", user_id).order("created_at", desc=False).execute()
-        
+        data = []
+        if supabase:
+            try:
+                response = supabase.table("messages").select("*").eq("user_id", user_id).order("created_at", desc=False).execute()
+                data = response.data or []
+            except Exception as e:
+                print(f"⚠️  Supabase error during get_chat_history: {e}, using mock database")
+                data = mock_db["messages"].get(user_id, [])
+        else:
+            data = mock_db["messages"].get(user_id, [])
+
         return {
-            "history": response.data,  # Danh sách tin nhắn
-            "total_messages": len(response.data)  # Tổng số tin nhắn
+            "history": data,  # Danh sách tin nhắn
+            "total_messages": len(data)  # Tổng số tin nhắn
         }
     except Exception as e:
         raise HTTPException(status_code=500, detail="Không thể lấy lịch sử chat")
@@ -668,18 +677,26 @@ async def chat_summary(current_user: dict = Depends(get_current_user)):
     try:
         # Lấy user_id từ token
         user_id = current_user["user_id"]
-        
-        # Truy vấn tất cả tin nhắn
-        response = supabase.table("messages").select("*").eq("user_id", user_id).order("created_at", desc=False).execute()
-        messages = response.data
-        
+
+        # Truy vấn tất cả tin nhắn, với fallback về mock DB
+        messages = []
+        if supabase:
+            try:
+                response = supabase.table("messages").select("*").eq("user_id", user_id).order("created_at", desc=False).execute()
+                messages = response.data or []
+            except Exception as e:
+                print(f"⚠️  Supabase error during chat_summary: {e}, using mock database")
+                messages = mock_db["messages"].get(user_id, [])
+        else:
+            messages = mock_db["messages"].get(user_id, [])
+
         # Nếu chưa có tin nhắn nào
         if not messages:
             return {"summary": "Chưa có cuộc hội thoại nào"}
-        
+
         # Tạo tóm tắt bằng Gemini AI
         summary = generate_summary(messages)
-        
+
         return {
             "summary": summary,  # Tóm tắt cuộc hội thoại
             "total_messages": len(messages),  # Tổng số tin nhắn
@@ -732,13 +749,25 @@ async def ocr_api(file: UploadFile = File(...), current_user: dict = Depends(get
         
         # === BƯỚC 4: LOG HOẠT ĐỘNG VÀO DATABASE ===
         timestamp = datetime.now().isoformat()
-        supabase.table("ocr_logs").insert({
+        log_entry = {
             "user_id": user_id,
-            "file_name": file.filename,  # Tên file
-            "extracted_text": ocr_response.text,  # Văn bản trích xuất
+            "file_name": file.filename,
+            "extracted_text": ocr_response.text,
             "created_at": timestamp
-        }).execute()
-        
+        }
+        if supabase:
+            try:
+                supabase.table("ocr_logs").insert(log_entry).execute()
+            except Exception as e:
+                print(f"⚠️  Supabase error logging OCR: {e}, using mock database")
+                if user_id not in mock_db["ocr_logs"]:
+                    mock_db["ocr_logs"][user_id] = []
+                mock_db["ocr_logs"][user_id].append(log_entry)
+        else:
+            if user_id not in mock_db["ocr_logs"]:
+                mock_db["ocr_logs"][user_id] = []
+            mock_db["ocr_logs"][user_id].append(log_entry)
+
         # === BƯỚC 5: TRẢ VỀ KẾT QUẢ ===
         return {"text": ocr_response.text}
     except HTTPException:

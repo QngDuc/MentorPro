@@ -3,7 +3,7 @@ import os
 import io
 import time
 from datetime import datetime, timedelta
-from fastapi import FastAPI, UploadFile, File, Form, HTTPException, Depends
+from fastapi import FastAPI, UploadFile, File, Form, HTTPException, Depends, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from fastapi.security import HTTPBearer
@@ -261,14 +261,25 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
 app.add_middleware(SecurityHeadersMiddleware)
 
 # *** Cấu hình Security ***
-security = HTTPBearer()  # Bearer token authentication
+# Allow optional bearer token (don't raise if missing)
+security = HTTPBearer(auto_error=False)  # Bearer token authentication (optional)
 
 # Dependency: Lấy người dùng hiện tại từ token
-async def get_current_user(credentials = Depends(security)) -> dict:
+async def get_current_user(credentials = Depends(security), request: Request = None) -> dict:
     """
     Dependency để kiểm tra JWT token
     Dùng trong các endpoint cần xác thực
     """
+    # If no credentials provided, return an anonymous user id (so frontend can chat without login)
+    if not credentials:
+        # Build a lightweight anonymous id from client IP + timestamp
+        try:
+            client_ip = request.client.host if request and request.client else "unknown"
+        except Exception:
+            client_ip = "unknown"
+        anon_id = f"anon_{hashlib.sha256((client_ip + str(time.time())).encode()).hexdigest()[:12]}"
+        return {"user_id": anon_id}
+
     token = credentials.credentials
     return verify_token(token)
 

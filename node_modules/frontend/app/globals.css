@@ -1,8 +1,11 @@
 @import "tailwindcss";
 
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
+  --background: linear-gradient(180deg, #fffafa 0%, #fff 40%);
+  --foreground: #0b0b0b;
+  --accent-red: #ff4d4f; /* primary red */
+  --accent-red-2: #ff7a7a; /* lighter red */
+  --glass-opacity: 0.12;
 }
 
 @theme inline {
@@ -20,38 +23,59 @@
 }
 
 body {
-  background: var(--background);
+  background: radial-gradient(800px 400px at 10% 20%, rgba(255,77,79,0.06), transparent 10%),
+              radial-gradient(800px 400px at 90% 80%, rgba(255,255,255,0.06), transparent 10%),
+              var(--background);
   color: var(--foreground);
   font-family: Arial, Helvetica, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
 }
 
 /* App specific styles to mimic provided design */
 .app-bg {
-  background: radial-gradient(1200px 600px at 10% 20%, rgba(15,23,42,0.7), transparent 15%), linear-gradient(180deg, #0b1020 0%, #0a0f18 60%);
+  background: radial-gradient(1000px 500px at 10% 18%, rgba(255,77,79,0.08), transparent 12%),
+              radial-gradient(1000px 500px at 90% 82%, rgba(255,255,255,0.06), transparent 12%),
+              linear-gradient(180deg, rgba(255,255,255,0.03), rgba(255,255,255,0.01));
 }
 
 .center-card {
-  background: linear-gradient(180deg, rgba(255,255,255,0.03), rgba(255,255,255,0.02));
-  border: 1px solid rgba(255,255,255,0.04);
-  -webkit-backdrop-filter: blur(6px) saturate(120%);
-  backdrop-filter: blur(6px) saturate(120%);
+  background: linear-gradient(180deg, rgba(255,255,255,var(--glass-opacity)), rgba(255,255,255,0.04));
+  border: 1px solid rgba(255,255,255,0.14);
+  box-shadow: 0 8px 30px rgba(2,6,23,0.2);
+  -webkit-backdrop-filter: blur(8px) saturate(130%);
+  backdrop-filter: blur(8px) saturate(130%);
+  border-radius: 18px;
+  position: relative;
+}
+
+.center-card::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  margin: -1px;
+  border-radius: 18px;
+  background: linear-gradient(90deg, rgba(255,77,79,0.06), rgba(255,255,255,0.02));
+  pointer-events: none;
 }
 
 .logo-circle {
   width: 36px;
   height: 36px;
   border-radius: 10px;
-  background: linear-gradient(135deg,#111827,#0b1220);
-  box-shadow: 0 4px 14px rgba(2,6,23,0.6);
+  background: linear-gradient(135deg, var(--accent-red), #fff);
+  box-shadow: 0 6px 20px rgba(255,77,79,0.12);
+  border: 1px solid rgba(255,255,255,0.18);
 }
 
-.brand-icon { box-shadow: 0 8px 30px rgba(2,6,23,0.6); }
-.inner-dot { transform: translateY(-1px); }
+.brand-icon { box-shadow: 0 12px 40px rgba(255,77,79,0.08); background: linear-gradient(180deg, #fff, rgba(255,255,255,0.85)); }
+.inner-dot { transform: translateY(-1px); background: white; }
 
 .input-pill {
-  background: rgba(9,10,12,0.45);
+  background: rgba(255,255,255,0.06);
   border-radius: 9999px;
-  border: 1px solid rgba(255,255,255,0.04);
+  border: 1px solid rgba(255,255,255,0.12);
+  padding: 8px 12px;
 }
 
 .icon-btn {
@@ -61,19 +85,24 @@ body {
   width: 36px;
   height: 36px;
   border-radius: 9999px;
-  background: transparent;
-  border: none;
-  color: #94a3b8;
+  background: rgba(255,255,255,0.03);
+  border: 1px solid rgba(255,255,255,0.06);
+  color: var(--accent-red);
 }
 
 .send-btn {
-  background: #0ea5a3;
-  color: #061018;
-  padding: 8px 12px;
+  background: linear-gradient(90deg, var(--accent-red), var(--accent-red-2));
+  color: #fff;
+  padding: 8px 14px;
   border-radius: 9999px;
-  font-weight: 600;
+  font-weight: 700;
   border: none;
+  box-shadow: 0 8px 24px rgba(255,77,79,0.14);
 }
+
+.send-btn:active { transform: translateY(1px); }
+
+.send-btn[disabled] { opacity: 0.6; pointer-events: none; }
 
 /* Responsive tweaks */
 @media (max-width: 640px) {

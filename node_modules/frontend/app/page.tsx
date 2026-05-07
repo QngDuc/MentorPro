@@ -1,6 +1,55 @@
-// import Image from "next/image"; (not used)
+"use client";
+
+import { useState } from "react";
 
 export default function Home() {
+  const [text, setText] = useState("");
+  const [loading, setLoading] = useState(false);
+  const [reply, setReply] = useState<string | null>(null);
+
+  async function sendMessage() {
+    if (!text.trim()) return;
+    setLoading(true);
+    setReply(null);
+
+    try {
+      const form = new FormData();
+      form.append("message", text.trim());
+
+      const token = typeof window !== "undefined" ? localStorage.getItem("access_token") : null;
+
+      const API_URL = (typeof process !== 'undefined' && process.env.NEXT_PUBLIC_API_URL) ? process.env.NEXT_PUBLIC_API_URL : 'http://localhost:8000';
+
+      const res = await fetch(`${API_URL}/chat`, {
+        method: "POST",
+        body: form,
+        headers: token ? { Authorization: `Bearer ${token}` } : undefined,
+      });
+
+      if (!res.ok) {
+        const err = await res.text();
+        setReply(`Error: ${res.status} ${err}`);
+      } else {
+        const data = await res.json();
+        setReply(data.ai_response || JSON.stringify(data));
+      }
+    } catch (e: unknown) {
+      const message = e instanceof Error ? e.message : String(e);
+      setReply(`Network error: ${message}`);
+    } finally {
+      setLoading(false);
+      setText("");
+    }
+  }
+
+  function handleKey(e: React.KeyboardEvent<HTMLInputElement>) {
+    if (e.key === "Enter") {
+      e.preventDefault();
+      sendMessage();
+    }
+  }
+
+  
   return (
     <div className="app-bg min-h-screen w-full flex items-center justify-center font-sans">
       <header className="absolute top-6 left-6 flex items-center gap-3 text-zinc-200">
@@ -36,7 +85,7 @@ export default function Home() {
               </svg>
             </button>
 
-            <input className="flex-1 bg-transparent outline-none text-zinc-200 placeholder-zinc-400" placeholder="Ask me anything..." />
+            <input value={text} onKeyDown={handleKey} onChange={(e) => setText(e.target.value)} className="flex-1 bg-transparent outline-none text-zinc-200 placeholder-zinc-400" placeholder="Ask me anything..." />
 
             <div className="flex items-center gap-3">
               <button type="button" aria-label="More options" className="icon-btn">
@@ -46,10 +95,16 @@ export default function Home() {
                 </svg>
               </button>
 
-              <button className="send-btn">Send</button>
+              <button type="button" aria-label="Send message" onClick={sendMessage} className="send-btn">{loading ? 'Sending...' : 'Send'}</button>
             </div>
           </div>
         </div>
+        {reply && (
+          <div className="mt-6 max-w-2xl mx-auto text-left text-zinc-200 bg-white/3 p-4 rounded-md">
+            <strong className="text-zinc-300">Assistant:</strong>
+            <div className="mt-2">{reply}</div>
+          </div>
+        )}
       </main>
     </div>
   );

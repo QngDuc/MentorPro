@@ -1,72 +1,124 @@
-# 🤖 MentorPro - AI Consultation Platform
+﻿# 🤖 MentorPro
 
-**MentorPro** là nền tảng tư vấn AI thông minh, kết hợp Gemini AI, phân tích cảm xúc, tóm tắt hội thoại, và OCR. Đóng vai trò như một người bạn đồng hành chuyên nghiệp.
+MentorPro là nền tảng tư vấn AI bằng tiếng Việt, gồm:
+- Chat AI với Gemini
+- Phân tích cảm xúc (sentiment)
+- Tóm tắt hội thoại
+- OCR trích xuất văn bản từ ảnh
 
-| 🔐 **Auth** | 💬 **Chat** | 📸 **OCR** | 📊 **Analysis** |
-|-----------|----------|--------|--------------|
-| JWT + Profile | Gemini AI | Image to Text | Sentiment AI |
+Dự án này có frontend Next.js và backend FastAPI.
 
 ---
 
-## 🚀 **Quick Start**
+## 🚀 Bắt đầu nhanh
 
-### 1️⃣ Cài đặt (3 bước)
+### 1. Clone repo
 ```bash
-# Clone & setup
-git clone <repo> && cd MentorPro
+git clone <repo-url> && cd MentorPro
+```
 
+### 2. Thiết lập môi trường
+```bash
 # Backend
-python -m venv .env && .env\Scripts\Activate.ps1
-cd backend && pip install -r requirements.txt
+python -m venv .venv
+.\.venv\Scripts\Activate.ps1
+cd backend
+pip install -r requirements.txt
 
 # Frontend
-cd ../frontend && npm install
+cd ..\frontend
+npm install
 ```
 
-### 2️⃣ Cấu hình `.env`
+### 3. Tạo file `.env`
+`main.py` trong `backend/` đọc biến môi trường từ file `.env` nằm ở thư mục gốc repo.
+
+Tạo file `.env` với nội dung:
 ```env
-GEMINI_API_KEY=your_key_from_ai.google.dev
+GEMINI_API_KEY=your_gemini_api_key
 JWT_SECRET_KEY=your_secret_key
 SUPABASE_URL=your_supabase_url
-SUPABASE_ANON_KEY=your_supabase_key
+SUPABASE_ANON_KEY=your_supabase_anon_key
 ```
 
-### 3️⃣ Chạy
+> Nếu `SUPABASE_URL` và `SUPABASE_ANON_KEY` không có giá trị, backend vẫn chạy nhưng sẽ dùng mock database nội bộ.
+
+### 4. Chạy ứng dụng
 ```bash
 # Terminal 1: Backend
-cd backend && python main.py  # → http://localhost:8000
+cd backend
+python main.py
 
-# Terminal 2: Frontend  
-cd frontend && npm run dev    # → http://localhost:3000
+# Terminal 2: Frontend
+cd frontend
+npm run dev
 ```
+
+Frontend mặc định chạy ở `http://localhost:3000`.
 
 ---
 
-## 📡 **API Endpoints (9 total)**
+## 📡 API Endpoints
 
 | Method | Endpoint | Auth | Mô tả |
 |--------|----------|------|-------|
-| POST | /register | ❌ | Đăng ký |
+| POST | /register | ❌ | Đăng ký tài khoản |
 | POST | /login | ❌ | Đăng nhập |
-| GET | /user/profile | ✅ | Lấy hồ sơ |
+| GET | /user/profile | ✅ | Lấy thông tin hồ sơ |
 | PUT | /user/profile | ✅ | Cập nhật hồ sơ |
-| POST | /chat | ✅ | Chat + Sentiment |
-| GET | /chat-history | ✅ | Lịch sử chat |
-| GET | /chat-summary | ✅ | Tóm tắt AI |
-| POST | /ocr | ✅ | Trích chữ ảnh |
+| POST | /chat | ✅ | Gửi tin nhắn chat và nhận phản hồi AI |
+| GET | /chat-history | ✅ | Lấy lịch sử chat |
+| GET | /chat-summary | ✅ | Tạo tóm tắt cuộc hội thoại |
+| POST | /ocr | ✅ | Trích xuất văn bản từ ảnh |
 | GET | / | ❌ | Health check |
 
-**Docs Interactive:** http://localhost:8000/docs (Swagger)
+Interactive docs:
+- `http://localhost:8000/docs`
+- `http://localhost:8000/redoc`
 
 ---
 
-## 💡 **Ví dụ Sử dụng**
+## 🧩 Tech stack
 
-### Đăng ký & Lấy Token
+- Frontend: Next.js 14, TypeScript
+- Backend: FastAPI, Python
+- AI: Gemini 1.5 Flash, TextBlob
+- Auth: JWT (PyJWT)
+- Database: Supabase PostgreSQL (tùy chọn)
+- OCR: Gemini AI xử lý ảnh
+
+---
+
+## 📁 Cấu trúc dự án
+
+```
+MentorPro/
+├── backend/
+│   ├── main.py
+│   ├── requirements.txt
+├── frontend/
+│   ├── app/
+│   ├── package.json
+├── package.json
+├── README.md
+```
+
+---
+
+## 🔧 Hướng dẫn sử dụng nhanh
+
+### Đăng ký
 ```bash
 curl -X POST http://localhost:8000/register \
   -H "Content-Type: application/json" \
   -d '{"username":"john","email":"john@example.com","password":"pass123"}'
+```
+
+### Đăng nhập
+```bash
+curl -X POST http://localhost:8000/login \
+  -H "Content-Type: application/json" \
+  -d '{"email":"john@example.com","password":"pass123"}'
 ```
 
 ### Chat với AI
@@ -76,114 +128,50 @@ curl -X POST http://localhost:8000/chat \
   -F "message=Tôi cảm thấy buồn"
 ```
 
-**Response:** Phản hồi AI + sentiment (polarity, emotion)
-
-### Tóm tắt Hội thoại
+### Tóm tắt hội thoại
 ```bash
 curl -X GET http://localhost:8000/chat-summary \
   -H "Authorization: Bearer YOUR_TOKEN"
 ```
 
----
-
-## ⚙️ **Tech Stack**
-
-| Layer | Tech |
-|-------|------|
-| **Frontend** | Next.js 14, TypeScript, Tailwind CSS |
-| **Backend** | FastAPI (Python 3.11+) |
-| **AI** | Gemini 1.5 Flash, TextBlob (Sentiment) |
-| **Database** | Supabase PostgreSQL |
-| **Auth** | JWT (PyJWT) |
-| **Deploy** | Vercel, Render/Railway |
-
----
-
-## 📁 **Cấu trúc**
-
-```
-MentorPro/
-├── backend/
-│   ├── main.py              # 9 endpoints + utils
-│   ├── requirements.txt
-│   ├── CODE_STRUCTURE.md    # Chi tiết code
-│   └── .env                 # Config
-├── frontend/
-│   ├── app/                 # Next.js app router
-│   └── package.json
-├── feature_tracking.py      # Excel tracker
-└── README.md
-```
-
-**Code Detail:** Xem [CODE_STRUCTURE.md](backend/CODE_STRUCTURE.md)
-
----
-
-## 🔐 **Security Features**
-
-✅ **JWT Tokens** (24h expiration)  
-✅ **Password Hashing** (SHA256)  
-✅ **Rate Limiting** (10 req/min)  
-✅ **CORS Protection** (whitelisted origins)  
-✅ **Input Validation** (Pydantic)  
-✅ **Bearer Auth** (HTTPBearer)
-
----
-
-## 📊 **Database Schema**
-
-| Table | Columns | Purpose |
-|-------|---------|---------|
-| `users` | user_id, email, password_hash, full_name, category, preferences | User accounts |
-| `messages` | id, user_id, content, role, sentiment, created_at | Chat history |
-| `ocr_logs` | id, user_id, file_name, extracted_text | OCR tracking |
-
-→ **Full schema:** [CODE_STRUCTURE.md](backend/CODE_STRUCTURE.md#-database-schema-supabase)
-
----
-
-## 🎯 **Sentiment Analysis**
-
-Mỗi tin nhắn được phân tích tự động:
-
-```json
-{
-  "polarity": 0.7,        // -1 (negative) → 0 (neutral) → 1 (positive)
-  "subjectivity": 0.8,    // 0 (objective) → 1 (subjective)
-  "emotion": "tích cực"   // positive/negative/neutral
-}
+### OCR
+```bash
+curl -X POST http://localhost:8000/ocr \
+  -H "Authorization: Bearer YOUR_TOKEN" \
+  -F "file=@path/to/image.png"
 ```
 
 ---
 
-## 🐛 **Troubleshooting**
+## 🛠️ Ghi chú kỹ thuật
 
-| Lỗi | Giải pháp |
-|-----|----------|
-| `ModuleNotFoundError` | `pip install -r requirements.txt` |
-| `Token hết hạn (401)` | Đăng nhập lại lấy token mới |
-| `CORS blocked` | Đảm bảo frontend chạy port 3000 |
-| `Rate limit (429)` | Chờ 1 phút hoặc cache requests |
-| `Gemini API error` | Kiểm tra GEMINI_API_KEY trong .env |
-| `Supabase connection` | Xác nhận URL & ANON_KEY đúng |
+- Backend tìm file `.env` ở thư mục gốc repo.
+- Nếu thiếu `GEMINI_API_KEY`, backend sẽ không khởi động.
+- Nếu Supabase không được cấu hình, backend vẫn hoạt động với mock database.
+- Giới hạn rate limit: 10 requests/phút.
+- File OCR tối đa: 10 MB.
 
 ---
 
-## 🚀 **Tiếp Theo**
+## 🐞 Troubleshooting
 
-✅ **Đã có:** JWT auth, Chat AI, Sentiment, Summary, OCR, Rate limiting  
-🎯 **Có thể thêm:** Refresh tokens, Email verification, Password reset, Analytics, Webhook
-
----
-
-## 📚 **Resources**
-
-- 📖 [Code Structure Guide](backend/CODE_STRUCTURE.md) - Chi tiết kiến trúc code
-- 📊 [Feature Tracking](MentorPro_Feature_Tracking.xlsx) - Danh sách features
-- 🔗 [FastAPI Docs](https://fastapi.tiangolo.com/)
-- 🔗 [Gemini API](https://ai.google.dev/)
-- 🔗 [Supabase](https://supabase.com/)
+- `ModuleNotFoundError`: chạy `pip install -r backend/requirements.txt`
+- `Token hết hạn (401)`: đăng nhập lại để lấy token mới
+- `CORS blocked`: kiểm tra frontend `http://localhost:3000`
+- `Rate limit (429)`: chờ 1 phút rồi thử lại
+- `Gemini API error`: kiểm tra giá trị `GEMINI_API_KEY`
 
 ---
 
-**Made with ❤️ for better AI consultation**
+## 🚀 Phát triển tiếp
+
+Các tính năng có thể thêm:
+- Refresh token
+- Xác thực email
+- Reset mật khẩu
+- Phân tích usage
+- Webhooks
+
+---
+
+**Made with ❤️ for MentorPro**

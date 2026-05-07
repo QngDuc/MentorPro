@@ -18,7 +18,7 @@ export default function Home() {
 
       const token = typeof window !== "undefined" ? localStorage.getItem("access_token") : null;
 
-      const API_URL = (typeof process !== 'undefined' && process.env.NEXT_PUBLIC_API_URL) ? process.env.NEXT_PUBLIC_API_URL : 'http://localhost:8000';
+      const API_URL = (typeof process !== 'undefined' && process.env.NEXT_PUBLIC_API_URL) ? process.env.NEXT_PUBLIC_API_URL : 'https://qngduc-mentorpro.hf.space';
 
       const res = await fetch(`${API_URL}/chat`, {
         method: "POST",

@@ -1,111 +1,69 @@
 "use client";
 
+import { useRouter } from "next/navigation";
 import { useState } from "react";
+import { MetorLogo } from "@/components/metor/MetorLogo";
 
-export default function Home() {
-  const [text, setText] = useState("");
-  const [loading, setLoading] = useState(false);
-  const [reply, setReply] = useState<string | null>(null);
+export default function LoginPage() {
+  const router = useRouter();
+  const [showPassword, setShowPassword] = useState(false);
 
-  async function sendMessage() {
-    if (!text.trim()) return;
-    setLoading(true);
-    setReply(null);
+  const handleLogin = () => {
+    window.localStorage.setItem("metor-demo-login", "true");
+    router.push("/chat");
+  };
 
-    try {
-      const form = new FormData();
-      form.append("message", text.trim());
-
-      const token = typeof window !== "undefined" ? localStorage.getItem("access_token") : null;
-
-      const API_URL = (typeof process !== 'undefined' && process.env.NEXT_PUBLIC_API_URL) ? process.env.NEXT_PUBLIC_API_URL : 'https://qngduc-mentorpro.hf.space';
-
-      const res = await fetch(`${API_URL}/chat`, {
-        method: "POST",
-        body: form,
-        headers: token ? { Authorization: `Bearer ${token}` } : undefined,
-      });
-
-      if (!res.ok) {
-        const err = await res.text();
-        setReply(`Error: ${res.status} ${err}`);
-      } else {
-        const data = await res.json();
-        setReply(data.ai_response || JSON.stringify(data));
-      }
-    } catch (e: unknown) {
-      const message = e instanceof Error ? e.message : String(e);
-      setReply(`Network error: ${message}`);
-    } finally {
-      setLoading(false);
-      setText("");
-    }
-  }
-
-  function handleKey(e: React.KeyboardEvent<HTMLInputElement>) {
-    if (e.key === "Enter") {
-      e.preventDefault();
-      sendMessage();
-    }
-  }
-
-  
   return (
-    <div className="app-bg min-h-screen w-full flex items-center justify-center font-sans">
-      <header className="absolute top-6 left-6 flex items-center gap-3 text-zinc-200">
-        <div className="logo-circle" />
-        <span className="text-sm font-semibold">Sense AI</span>
-      </header>
+    <main className="login-page">
+      <section className="login-card" aria-label="Metor AI Pro login">
+        <MetorLogo />
 
-      <main className="center-card w-full max-w-4xl p-10 rounded-2xl shadow-xl">
-        <div className="flex flex-col items-center gap-4 text-center">
-          <div className="brand-icon w-20 h-20 rounded-full bg-[#0f1724] flex items-center justify-center">
-            <div className="inner-dot w-8 h-8 rounded-full bg-white/90" />
-          </div>
+        <div className="login-form">
+          <input type="text" placeholder="Số điện thoại / địa chỉ email" aria-label="Số điện thoại hoặc email" />
+          <label className="password-field">
+            <input
+              type={showPassword ? "text" : "password"}
+              placeholder="Mật khẩu"
+              aria-label="Mật khẩu"
+            />
+            <button
+              type="button"
+              onClick={() => setShowPassword((value) => !value)}
+              aria-label={showPassword ? "Ẩn mật khẩu" : "Hiện mật khẩu"}
+            >
+              {showPassword ? "Ẩn" : "Hiện"}
+            </button>
+          </label>
 
-          <h1 className="text-3xl md:text-4xl font-semibold text-zinc-50">
-            Hi, Guest
-          </h1>
-
-          <p className="text-zinc-300 max-w-2xl">
-            Can I help you with anything?
+          <p className="terms-copy">
+            Khi đăng ký hoặc đăng nhập, bạn đồng ý với{" "}
+            <a href="#">Điều khoản sử dụng</a> và{" "}
+            <a href="#">Chính sách bảo mật</a> của MetorAIPro.
           </p>
 
-          <p className="text-zinc-400 text-sm max-w-2xl">
-           Ready to assist you with anything you need? From answering questions, generation to providing
-            recommendations. Let&apos;s get started!
-          </p> 
-        </div>
+          <div className="login-links">
+            <a href="#">Quên mật khẩu?</a>
+            <a href="#">Đăng ký</a>
+          </div>
 
-        <div className="mt-8 flex items-center justify-center">
-          <div className="input-pill w-full max-w-2xl flex items-center gap-4 px-4 py-3">
-            <button type="button" aria-label="Open assistant menu" className="icon-btn">
-              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-                <path d="M12 1C5.92487 1 1 5.92487 1 12C1 18.0751 5.92487 23 12 23C18.0751 23 23 18.0751 23 12C23 5.92487 18.0751 1 12 1Z" stroke="#94a3b8" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round"/>
-              </svg>
+          <button type="button" className="login-button" onClick={handleLogin}>
+            Đăng nhập
+          </button>
+
+          <div className="social-divider">
+            <span />
+            <button type="button" aria-label="Đăng nhập với Google">
+              G
             </button>
-
-            <input value={text} onKeyDown={handleKey} onChange={(e) => setText(e.target.value)} className="flex-1 bg-transparent outline-none text-zinc-200 placeholder-zinc-400" placeholder="Ask me anything..." />
-
-            <div className="flex items-center gap-3">
-              <button type="button" aria-label="More options" className="icon-btn">
-                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-                  <path d="M12 5V19" stroke="#94a3b8" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
-                  <path d="M5 12H19" stroke="#94a3b8" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
-                </svg>
-              </button>
-
-              <button type="button" aria-label="Send message" onClick={sendMessage} className="send-btn">{loading ? 'Sending...' : 'Send'}</button>
-            </div>
+            <button type="button" aria-label="Đăng nhập với Apple">
+              
+            </button>
+            <span />
           </div>
         </div>
-        {reply && (
-          <div className="mt-6 max-w-2xl mx-auto text-left text-zinc-200 bg-white/3 p-4 rounded-md">
-            <strong className="text-zinc-300">Assistant:</strong>
-            <div className="mt-2">{reply}</div>
-          </div>
-        )}
-      </main>
-    </div>
+      </section>
+
+      <footer className="login-footer">MetorAIPro • Liên hệ chúng tôi</footer>
+    </main>
   );
 }

@@ -1,7 +1,7 @@
 "use client";
 
 import Image from "next/image";
-import { ClipboardEvent, useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { ChatSidebar } from "@/components/chat/ChatSidebar";
 import { QuickExamples } from "@/components/chat/QuickExamples";
 import "@/app/chat.css";
@@ -56,6 +56,7 @@ export default function ChatPage() {
   };
 
   const handleSend = async () => {
+    
     const text = input.trim();
     if (!text && !imageFile) return;
 
@@ -141,6 +142,21 @@ export default function ChatPage() {
     setInput(text);
   };
 
+  const handlePaste = (event: React.ClipboardEvent<HTMLTextAreaElement>) => {
+    const items = event.clipboardData?.items;
+    if (!items) return;
+
+    for (let i = 0; i < items.length; i++) {
+      const item = items[i];
+      if (item.type.startsWith("image/")) {
+        event.preventDefault();
+        const file = item.getAsFile();
+        if (file) attachImage(file);
+        return;
+      }
+    }
+  };
+
   return (
     <div className="chat-layout">
       <ChatSidebar />
@@ -157,7 +173,7 @@ export default function ChatPage() {
             <div className="welcome-section">
               <div className="greeting">
                 <h2>Good Afternoon, Jason</h2>
-                <p>What's on <span>your mind</span>?</p>
+                <p>What&apos;s on <span>your mind</span>?</p>
               </div>
 
               <QuickExamples onSelect={handleQuickExample} />
@@ -224,6 +240,7 @@ export default function ChatPage() {
                 type="file"
                 accept="image/*"
                 className="sr-only"
+                aria-label="Attach image"
                 onChange={(event) => {
                   const file = event.target.files?.[0];
                   if (file) attachImage(file);

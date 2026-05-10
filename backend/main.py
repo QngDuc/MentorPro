@@ -24,13 +24,10 @@ import hashlib
 
 
 # --- CẤU HÌNH MÔI TRƯỜNG ---
-# Tải biến môi trường từ file .env (nếu tồn tại - dành cho local development)
+# Tải biến môi trường từ file .env (ở thư mục cha)
 env_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), ".env")
-if os.path.exists(env_path):
-    print(f"Loading .env from: {env_path}")
-    load_dotenv(env_path)
-else:
-    print("No .env file found (normal for HuggingFace Spaces - use environment variables)")
+print(f"Looking for .env at: {env_path}")
+load_dotenv(env_path)
 
 
 # ==== CẤU HÌNH BIẾN MÔI TRƯỜNG & GIỚI HẠN ====
@@ -49,12 +46,9 @@ MAX_FILE_SIZE_BYTES = 10 * 1024 * 1024  # 10 MB
 # Debug: In ra giá trị env variables
 print(f"Debug GEMINI_API_KEY: {GEMINI_API_KEY[:20] if GEMINI_API_KEY else 'NOT SET'}...")
 
-# Cảnh báo nếu GEMINI_API_KEY không được cấu hình (nhưng không crash startup)
+# Kiểm tra GEMINI_API_KEY bắt buộc
 if not GEMINI_API_KEY:
-    print("⚠️  CẢNH BÁO: GEMINI_API_KEY không được cấu hình!")
-    print("   - Nếu chạy trên HuggingFace Spaces: Đặt biến này trong Space Settings → Variables")
-    print("   - Nếu chạy cục bộ: Tạo file .env với GEMINI_API_KEY=...")
-    print("   API sẽ không hoạt động cho đến khi GEMINI_API_KEY được cấu hình")
+    raise ValueError("Thiếu GEMINI_API_KEY trong file .env!")
 
 
 # --- PYDANTIC MODELS (Cấu trúc dữ liệu) ---
@@ -178,9 +172,6 @@ def generate_summary(messages: list) -> str:
     """
     Tóm tắt hội thoại bằng Gemini AI (lấy 10 tin nhắn gần nhất)
     """
-    if not model:
-        return "Gemini API chưa được cấu hình. Hãy thiết lập GEMINI_API_KEY trong biến môi trường."
-    
     try:
         conversation_text = "\n".join([f"{msg['role']}: {msg['content']}" for msg in messages[-10:]])
         summary_prompt = f"""Tóm tắt cuộc trò chuyện sau đây thành 1-2 câu ngắn gọn, chuyên sâu:\n\n{conversation_text}\n\nTóm tắt:"""
@@ -208,24 +199,15 @@ def check_rate_limit(user_id: str):
 # --- CẤU HÌNH AI & DATABASE ---
 
 # *** Cấu hình Gemini AI ***
-model = None
-if GEMINI_API_KEY:
-    try:
-        genai.configure(api_key=GEMINI_API_KEY)
-        print("✅ Đã cấu hình API key cho Gemini")
-        print(f"Available models: {[m.name for m in genai.list_models()]}")
-        
-        # Khởi tạo Gemini model với system instruction
-        model = genai.GenerativeModel(
-            model_name="gemini-2.0s",  # Model nhanh, chi phí thấp
-            # Hướng dẫn cho AI cách hành xử
-            system_instruction="Bạn là MentorPro, một người bạn thân thiết, tâm lý và thông minh. Hãy tư vấn cho người dùng một cách chân thành, sử dụng ngôn ngữ gần gũi như bạn bè."
-        )
-    except Exception as e:
-        print(f"❌ Lỗi cấu hình Gemini: {e}")
-        model = None
-else:
-    print("⚠️  Gemini model sẽ không hoạt động cho đến khi GEMINI_API_KEY được cấu hình")
+genai.configure(api_key=GEMINI_API_KEY)
+print(genai.list_models())  # Cấu hình API key
+
+# Khởi tạo Gemini model với system instruction
+model = genai.GenerativeModel(
+    model_name="gemini-2.0s",  # Model nhanh, chi phí thấp
+    # Hướng dẫn cho AI cách hành xử
+    system_instruction="Bạn là MentorPro, một người bạn thân thiết, tâm lý và thông minh. Hãy tư vấn cho người dùng một cách chân thành, sử dụng ngôn ngữ gần gũi như bạn bè."
+)
 
 # *** Cấu hình Supabase (Database) ***
 SUPABASE_URL = os.getenv("SUPABASE_URL", "")
@@ -558,10 +540,6 @@ async def chat_api(message: str = Form(...), current_user: dict = Depends(get_cu
     - Status: 200 (OK), 400 (input lỗi), 401 (token lỗi), 429 (rate limit), 500 (server)
     """
     try:
-        # Kiểm tra xem Gemini API có được cấu hình không
-        if not model:
-            raise HTTPException(status_code=503, detail="Gemini API chưa được cấu hình. Hãy đặt GEMINI_API_KEY trong biến môi trường.")
-        
         # Lấy user_id từ token
         user_id = current_user["user_id"]
         
@@ -732,10 +710,6 @@ async def ocr_api(file: UploadFile = File(...), current_user: dict = Depends(get
     - Status: 200 (OK), 400 (file lỗi), 401 (token lỗi), 500 (server)
     """
     try:
-        # Kiểm tra xem Gemini API có được cấu hình không
-        if not model:
-            raise HTTPException(status_code=503, detail="Gemini API chưa được cấu hình. Hãy đặt GEMINI_API_KEY trong biến môi trường.")
-        
         # Lấy user_id từ token
         user_id = current_user["user_id"]
         

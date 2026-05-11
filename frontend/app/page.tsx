@@ -2,7 +2,7 @@
 
 import { useRouter } from "next/navigation";
 import { useState } from "react";
-import { MetorLogo } from "@/components/metor/MetorLogo";
+import { DeepseekLogo } from "@/components/metor/DeepseekLogo";
 
 export default function LoginPage() {
   const router = useRouter();
@@ -15,11 +15,16 @@ export default function LoginPage() {
 
   return (
     <main className="login-page">
-      <section className="login-card" aria-label="Metor AI Pro login">
-        <MetorLogo />
+      <section className="login-card" aria-label="MetorAIPro login">
+        <DeepseekLogo />
 
         <div className="login-form">
-          <input type="text" placeholder="Số điện thoại / địa chỉ email" aria-label="Số điện thoại hoặc email" />
+          <input
+            type="text"
+            placeholder="Số điện thoại / địa chỉ email"
+            aria-label="Số điện thoại hoặc email"
+          />
+
           <label className="password-field">
             <input
               type={showPassword ? "text" : "password"}
@@ -38,7 +43,7 @@ export default function LoginPage() {
           <p className="terms-copy">
             Khi đăng ký hoặc đăng nhập, bạn đồng ý với{" "}
             <a href="#">Điều khoản sử dụng</a> và{" "}
-            <a href="#">Chính sách bảo mật</a> của MetorAIPro.
+            <a href="#">Chính sách bảo mật</a> của DeepSeek.
           </p>
 
           <div className="login-links">
@@ -56,14 +61,14 @@ export default function LoginPage() {
               G
             </button>
             <button type="button" aria-label="Đăng nhập với Apple">
-              
+              A
             </button>
             <span />
           </div>
         </div>
       </section>
 
-      <footer className="login-footer">MetorAIPro • Liên hệ chúng tôi</footer>
+      <footer className="login-footer">浙ICP备2023025841号 · Liên hệ chúng tôi</footer>
     </main>
   );
 }

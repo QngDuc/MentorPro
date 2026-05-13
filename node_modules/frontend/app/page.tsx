@@ -23,15 +23,15 @@ export default function LoginPage() {
 
       <main className="w-full max-w-md p-12 rounded-2xl shadow-2xl bg-slate-900 border border-slate-800">
         <div className="flex flex-col items-center gap-8 text-center">
-          <div className="w-24 h-24 rounded-full bg-gradient-to-b from-purple-600 to-blue-600 flex items-center justify-center shadow-lg">
+          <div className="w-24 h-24 rounded-full bg-gradient-to-b from-purple-600 to-blue-600 flex items-center shadow-lg">
             <div className="w-10 h-10 rounded-full bg-white/90" />
           </div>
 
           <div>
-            <h1 className="text-4xl md:text-5xl font-bold text-white mb-2">
+            <h1 className="text-4xl md:text-5xl font-bold text-white mb-6">
               Welcome back
             </h1>
-            <p className="text-slate-400">
+            <p className="text-slate-400 text-base">
               Continue to MentorPro
             </p>
           </div>

@@ -15,7 +15,7 @@ export default function LoginPage() {
   };
 
   return (
-    <div className="min-h-screen w-full flex items-center justify-center font-sans bg-linear-to-b from-slate-950 to-slate-900">
+    <div className="min-h-screen w-full flex items-center justify-center font-sans bg-gradient-to-b from-slate-950 to-slate-900">
       <header className="absolute top-6 left-6 flex items-center gap-3 text-purple-300">
         <div className="text-2xl font-black">⊙</div>
         <span className="text-sm font-semibold">MentorPro</span>
@@ -23,7 +23,7 @@ export default function LoginPage() {
 
       <main className="w-full max-w-md p-12 rounded-2xl shadow-2xl bg-slate-900 border border-slate-800">
         <div className="flex flex-col items-center gap-8 text-center">
-          <div className="w-24 h-24 rounded-full bg-linear-to-b from-purple-600 to-blue-600 flex items-center justify-center shadow-lg">
+          <div className="w-24 h-24 rounded-full bg-gradient-to-b from-purple-600 to-blue-600 flex items-center justify-center shadow-lg">
             <div className="w-10 h-10 rounded-full bg-white/90" />
           </div>
 
@@ -38,7 +38,7 @@ export default function LoginPage() {
 
           <button 
             type="button" 
-            className="w-full py-3 px-6 rounded-lg bg-linear-to-r from-purple-600 to-blue-600 text-white font-bold hover:from-purple-700 hover:to-blue-700 transition-all disabled:opacity-50"
+            className="w-full py-3 px-6 rounded-lg bg-gradient-to-r from-purple-600 to-blue-600 text-white font-bold hover:from-purple-700 hover:to-blue-700 transition-all disabled:opacity-50"
             onClick={handleLogin}
             disabled={isLoading}
             aria-label="Continue"

@@ -3,6 +3,15 @@
 @tailwind components;
 @tailwind utilities;
 
+@layer utilities {
+  .delay-2000 {
+    animation-delay: 2s;
+  }
+  .delay-4000 {
+    animation-delay: 4s;
+  }
+}
+
 :root {
   --background: linear-gradient(180deg, #fffafa 0%, #fff 40%);
   --foreground: #0b0b0b;

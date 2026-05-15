@@ -200,11 +200,20 @@ def check_rate_limit(user_id: str):
 
 # *** Cấu hình Gemini AI ***
 genai.configure(api_key=GEMINI_API_KEY)
-print(genai.list_models())  # Cấu hình API key
+
+# List available models (properly consume the generator)
+try:
+    available_models = [model for model in genai.list_models() if "generateContent" in model.supported_generation_methods]
+    print(f"✅ Available generative models: {[m.name for m in available_models]}")
+    # Use the first available model
+    model_to_use = available_models[0].name if available_models else "gemini-1.5-pro"
+except Exception as e:
+    print(f"⚠️ Could not list models: {e}, using default gemini-1.5-pro")
+    model_to_use = "gemini-1.5-pro"
 
 # Khởi tạo Gemini model với system instruction
 model = genai.GenerativeModel(
-    model_name="gemini-2.0s",  # Model nhanh, chi phí thấp
+    model_name=model_to_use,  # Model nhanh, chi phí thấp
     # Hướng dẫn cho AI cách hành xử
     system_instruction="Bạn là MentorPro, một người bạn thân thiết, tâm lý và thông minh. Hãy tư vấn cho người dùng một cách chân thành, sử dụng ngôn ngữ gần gũi như bạn bè."
 )

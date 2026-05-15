@@ -49,6 +49,8 @@ export default function ChatPage() {
   const [deepThinking, setDeepThinking] = useState(false);
   const [smartSearch, setSmartSearch] = useState(true);
   const [accountMenuOpen, setAccountMenuOpen] = useState(false);
+  const [searchOpen, setSearchOpen] = useState(false);
+  const [searchQuery, setSearchQuery] = useState("");
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [settingsTab, setSettingsTab] = useState<SettingsTab>("general");
   const [themeMode, setThemeMode] = useState<ThemeMode>("light");
@@ -72,6 +74,29 @@ export default function ChatPage() {
 
   const hasConversation = messages.length > 0 || isLoading;
   const currentTitle = getConversationTitle(messages);
+  const activeModeConfig = chatModes.find((mode) => mode.id === activeMode) ?? chatModes[0];
+  const searchableConversations = useMemo(() => {
+    const currentConversationTitle = getConversationTitle(messages);
+    const currentConversation = currentConversationTitle
+      ? [
+          {
+            id: activeConversationId ?? "current",
+            title: currentConversationTitle,
+            messages,
+            updatedAt: Date.now(),
+          } satisfies ChatConversation,
+        ]
+      : [];
+
+    return sortConversations([
+      ...currentConversation,
+      ...history.filter((conversation) => conversation.id !== activeConversationId),
+    ]);
+  }, [activeConversationId, history, messages]);
+  const searchResults = useMemo(
+    () => searchConversations(searchableConversations, searchQuery),
+    [searchableConversations, searchQuery],
+  );
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -307,6 +332,12 @@ export default function ChatPage() {
     setActiveConversationId(null);
   };
 
+  const selectSearchResult = (conversation: ChatConversation) => {
+    if (conversation.id !== "current") selectConversation(conversation);
+    setSearchOpen(false);
+    setSearchQuery("");
+  };
+
   return (
     <main
       className={[
@@ -321,7 +352,17 @@ export default function ChatPage() {
         <div className="chat-sidebar-top">
           <MetorLogo compact={sidebarCollapsed} />
           <div className="sidebar-actions">
-            <button type="button" aria-label="Tìm kiếm" className="sidebar-search-button">
+            <button
+              type="button"
+              aria-label="Tìm kiếm"
+              className="sidebar-search-button"
+              onClick={() => {
+                setSearchOpen(true);
+                setSearchQuery("");
+                setAccountMenuOpen(false);
+                setHistoryMenuId(null);
+              }}
+            >
               <Icon name="search" />
             </button>
             <button
@@ -460,6 +501,16 @@ export default function ChatPage() {
         />
       )}
 
+      {searchOpen && (
+        <SearchDialog
+          query={searchQuery}
+          results={searchResults}
+          onQueryChange={setSearchQuery}
+          onClose={() => setSearchOpen(false)}
+          onSelect={selectSearchResult}
+        />
+      )}
+
       {deleteConversationId && (
         <div className="delete-chat-overlay" role="dialog" aria-modal="true" aria-label="Xóa cuộc trò chuyện">
           <div className="delete-chat-dialog">
@@ -483,8 +534,8 @@ export default function ChatPage() {
             <div>
               <strong>{currentTitle || "Trò chuyện mới"}</strong>
               <span>
-                <Icon name="sparkles" />
-                Nhanh
+                <Icon name={activeModeConfig.icon} />
+                {activeModeConfig.label}
               </span>
             </div>
             <button type="button" aria-label="Chia sẻ">
@@ -560,7 +611,7 @@ export default function ChatPage() {
             <div className="chat-start">
               <div className="chat-start-title">
                 <MetorLogo compact />
-                <h1>Chế độ Nhanh</h1>
+                <h1>Chế độ {activeModeConfig.label}</h1>
               </div>
               <ModeSwitcher activeMode={activeMode} onModeChange={setActiveMode} />
             </div>
@@ -644,6 +695,62 @@ export default function ChatPage() {
         </div>
       </section>
     </main>
+  );
+}
+
+function SearchDialog({
+  query,
+  results,
+  onQueryChange,
+  onClose,
+  onSelect,
+}: {
+  query: string;
+  results: ChatConversation[];
+  onQueryChange: (query: string) => void;
+  onClose: () => void;
+  onSelect: (conversation: ChatConversation) => void;
+}) {
+  return (
+    <div className="search-overlay" role="dialog" aria-modal="true" aria-label="Tìm kiếm">
+      <div className="search-dialog">
+        <div className="search-input-row">
+          <Icon name="search" />
+          <input
+            value={query}
+            onChange={(event) => onQueryChange(event.target.value)}
+            placeholder="Tìm kiếm"
+            aria-label="Tìm kiếm cuộc trò chuyện"
+            autoFocus
+          />
+          <button type="button" onClick={onClose} aria-label="Đóng tìm kiếm">
+            <Icon name="close" />
+          </button>
+        </div>
+
+        <div className="search-results">
+          {results.length ? (
+            results.map((conversation) => (
+              <button type="button" key={conversation.id} onClick={() => onSelect(conversation)}>
+                <span className="search-result-icon">
+                  <Icon name="chat" />
+                </span>
+                <span className="search-result-body">
+                  <strong>{conversation.title}</strong>
+                  <span>{getConversationPreview(conversation)}</span>
+                </span>
+                <time>{formatConversationTime(conversation.updatedAt)}</time>
+              </button>
+            ))
+          ) : (
+            <div className="search-empty-state">
+              <Icon name="search" />
+              <span>{query.trim() ? "Không tìm thấy cuộc trò chuyện phù hợp" : "Nhập từ khóa để tìm lịch sử chat"}</span>
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
   );
 }
 
@@ -797,6 +904,31 @@ function sortConversations(conversations: ChatConversation[]) {
   });
 }
 
+function searchConversations(conversations: ChatConversation[], query: string) {
+  const normalizedQuery = query.trim().toLowerCase();
+  if (!normalizedQuery) return conversations;
+
+  return conversations.filter((conversation) => {
+    const content = [conversation.title, ...conversation.messages.map((message) => message.content)]
+      .join(" ")
+      .toLowerCase();
+
+    return content.includes(normalizedQuery);
+  });
+}
+
+function getConversationPreview(conversation: ChatConversation) {
+  const preview = conversation.messages.find((message) => message.role !== "system")?.content ?? conversation.title;
+  return preview.length > 92 ? `${preview.slice(0, 89)}...` : preview;
+}
+
+function formatConversationTime(timestamp: number) {
+  return new Intl.DateTimeFormat("vi-VN", {
+    hour: "2-digit",
+    minute: "2-digit",
+  }).format(timestamp);
+}
+
 function ModeSwitcher({
   activeMode,
   onModeChange,
@@ -852,6 +984,7 @@ type IconName =
   | "arrowUp"
   | "brain"
   | "chevronDown"
+  | "chat"
   | "close"
   | "copy"
   | "database"
@@ -916,6 +1049,12 @@ function Icon({ name }: { name: IconName }) {
       {name === "more" && <path d="M6 12h.01M12 12h.01M18 12h.01" {...common} />}
       {name === "close" && <path d="M6 6l12 12M18 6 6 18" {...common} />}
       {name === "chevronDown" && <path d="m6 9 6 6 6-6" {...common} />}
+      {name === "chat" && (
+        <>
+          <path d="M5 5h14a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H9l-5 4v-4H5a2 2 0 0 1-2-2V7a2 2 0 0 1 2-2Z" {...common} />
+          <path d="M8 9h8M8 13h5" {...common} />
+        </>
+      )}
       {name === "phone" && (
         <>
           <rect x="7" y="3" width="10" height="18" rx="2" {...common} />

@@ -2,198 +2,191 @@
 
 import { useRouter } from "next/navigation";
 import { useState } from "react";
+import { MetorLogo } from "@/components/metor/MetorLogo";
+
+type AuthMode = "login" | "signup" | "forgot";
+type PasswordFieldKey = "login" | "signup" | "confirm";
 
 export default function LoginPage() {
   const router = useRouter();
-  const [email, setEmail] = useState("");
-  const [password, setPassword] = useState("");
-  const [showPassword, setShowPassword] = useState(false);
-  const [isLoading, setIsLoading] = useState(false);
-  const [errors, setErrors] = useState<{ email?: string; password?: string }>({});
+  const [authMode, setAuthMode] = useState<AuthMode>("login");
+  const [visiblePasswords, setVisiblePasswords] = useState<Record<PasswordFieldKey, boolean>>({
+    login: false,
+    signup: false,
+    confirm: false,
+  });
 
-  const validateEmail = (email: string) => {
-    return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
-  };
-
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    const newErrors: typeof errors = {};
-
-    if (!email) {
-      newErrors.email = "Email is required";
-    } else if (!validateEmail(email)) {
-      newErrors.email = "Invalid email format";
-    }
-
-    if (!password) {
-      newErrors.password = "Password is required";
-    }
-
-    if (Object.keys(newErrors).length > 0) {
-      setErrors(newErrors);
-      return;
-    }
-
-    setErrors({});
-    setIsLoading(true);
-
-    await new Promise(resolve => setTimeout(resolve, 500));
-    window.localStorage.setItem("metor-demo-login", "true");
-    window.localStorage.setItem("user-email", email);
-    router.push("/chat");
-  };
-
-  const handleDemoLogin = async () => {
-    setIsLoading(true);
-    await new Promise(resolve => setTimeout(resolve, 500));
+  const handleLogin = () => {
     window.localStorage.setItem("metor-demo-login", "true");
     router.push("/chat");
   };
 
-  const handleOAuthLogin = (provider: string) => {
-    alert(`${provider} login would redirect to OAuth provider`);
+  const togglePassword = (field: PasswordFieldKey) => {
+    setVisiblePasswords((current) => ({ ...current, [field]: !current[field] }));
   };
 
   return (
-    <div className="min-h-screen w-full flex flex-col items-center justify-center font-sans bg-gradient-to-br from-blue-50 via-cyan-50 to-blue-100">
-      <header className="absolute top-8 left-8 flex items-center gap-3">
-        <div className="w-10 h-10 rounded-full bg-gradient-to-br from-blue-500 to-cyan-500 flex items-center justify-center text-white font-bold text-lg">M</div>
-        <span className="text-xl font-bold bg-gradient-to-r from-blue-600 to-cyan-600 bg-clip-text text-transparent">MentorPro</span>
-      </header>
+    <main className="login-page">
+      <section className={`login-card auth-card-${authMode}`} aria-label={`MentorPro ${authMode}`}>
+        <MetorLogo />
 
-      <main className="w-full max-w-md p-8 rounded-2xl shadow-lg bg-white border border-cyan-100">
-        <div className="flex flex-col gap-8">
-          <div className="text-center">
-            <h1 className="text-3xl font-bold text-slate-800 mb-3">
-              Welcome back
-            </h1>
-            <p className="text-slate-500">
-              Sign in to your MentorPro account
+        {authMode === "login" && (
+          <div className="login-form">
+            <TextField placeholder="Số điện thoại / địa chỉ email" ariaLabel="Số điện thoại hoặc email" />
+
+            <PasswordField
+              visible={visiblePasswords.login}
+              placeholder="Mật khẩu"
+              ariaLabel="Mật khẩu"
+              onToggle={() => togglePassword("login")}
+            />
+
+            <p className="terms-copy">
+              Khi đăng ký hoặc đăng nhập, bạn đồng ý với <a href="#">Điều khoản sử dụng</a> và{" "}
+              <a href="#">Chính sách bảo mật</a> của MentorPro.
             </p>
-          </div>
 
-          <form onSubmit={handleSubmit} className="flex flex-col gap-4">
-            <div>
-              <label htmlFor="email" className="block text-sm font-semibold text-slate-700 mb-2">
-                Email
-              </label>
-              <input
-                id="email"
-                type="email"
-                value={email}
-                onChange={(e) => {
-                  setEmail(e.target.value);
-                  if (errors.email) setErrors({...errors, email: undefined});
-                }}
-                placeholder="you@example.com"
-                className={`w-full px-4 py-3 rounded-lg border-2 bg-slate-50 text-slate-800 placeholder-slate-400 transition-all focus:outline-none ${
-                  errors.email
-                    ? "border-red-300 focus:border-red-500 focus:bg-red-50"
-                    : "border-cyan-200 focus:border-cyan-500 focus:bg-white"
-                }`}
-                aria-label="Email address"
-                disabled={isLoading}
-              />
-              {errors.email && (
-                <p className="text-red-500 text-sm mt-1">{errors.email}</p>
-              )}
+            <div className="login-links">
+              <button type="button" onClick={() => setAuthMode("forgot")}>
+                Quên mật khẩu?
+              </button>
+              <button type="button" onClick={() => setAuthMode("signup")}>
+                Đăng ký
+              </button>
             </div>
 
-            <div>
-              <label htmlFor="password" className="block text-sm font-semibold text-slate-700 mb-2">
-                Password
-              </label>
-              <div className="relative">
-                <input
-                  id="password"
-                  type={showPassword ? "text" : "password"}
-                  value={password}
-                  onChange={(e) => {
-                    setPassword(e.target.value);
-                    if (errors.password) setErrors({...errors, password: undefined});
-                  }}
-                  placeholder="••••••••"
-                  className={`w-full px-4 py-3 rounded-lg border-2 bg-slate-50 text-slate-800 placeholder-slate-400 transition-all focus:outline-none pr-12 ${
-                    errors.password
-                      ? "border-red-300 focus:border-red-500 focus:bg-red-50"
-                      : "border-cyan-200 focus:border-cyan-500 focus:bg-white"
-                  }`}
-                  aria-label="Password"
-                  disabled={isLoading}
-                />
-                <button
-                  type="button"
-                  onClick={() => setShowPassword(!showPassword)}
-                  className="absolute right-3 top-1/2 transform -translate-y-1/2 text-slate-500 hover:text-slate-700 text-lg"
-                  aria-label={showPassword ? "Hide password" : "Show password"}
-                  disabled={isLoading}
-                >
-                  {showPassword ? "👁️" : "👁️‍🗨️"}
-                </button>
-              </div>
-              {errors.password && (
-                <p className="text-red-500 text-sm mt-1">{errors.password}</p>
-              )}
-            </div>
-
-            <button
-              type="submit"
-              disabled={isLoading}
-              className="w-full py-3 rounded-lg bg-gradient-to-r from-blue-500 to-cyan-500 text-white font-bold hover:from-blue-600 hover:to-cyan-600 transition-all disabled:opacity-50 disabled:cursor-not-allowed shadow-md hover:shadow-lg"
-              aria-label="Sign in"
-            >
-              {isLoading ? "Signing in..." : "Sign In"}
+            <button type="button" className="login-button" onClick={handleLogin}>
+              Đăng nhập
             </button>
-          </form>
 
-          <div className="relative">
-            <div className="absolute inset-0 flex items-center">
-              <div className="w-full border-t border-cyan-200"></div>
-            </div>
-            <div className="relative flex justify-center text-sm">
-              <span className="px-2 bg-white text-slate-500">Or continue with</span>
+            <div className="social-divider">
+              <span />
+              <button type="button" aria-label="Đăng nhập với Google">
+                G
+              </button>
+              <button type="button" aria-label="Đăng nhập với Apple">
+                A
+              </button>
+              <span />
             </div>
           </div>
+        )}
 
-          <div className="flex flex-col gap-3">
-            <button
-              type="button"
-              onClick={() => handleOAuthLogin("Google")}
-              disabled={isLoading}
-              className="w-full py-3 px-4 rounded-lg border-2 border-slate-200 text-slate-700 font-semibold hover:border-blue-400 hover:bg-blue-50 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
-            >
-              🔍 Google
+        {authMode === "signup" && (
+          <div className="login-form auth-alt-form">
+            <p className="auth-copy">
+              Chỉ hỗ trợ đăng ký bằng email tại khu vực của bạn. Chỉ cần một tài khoản MentorPro để truy cập mọi
+              dịch vụ của MentorPro.
+            </p>
+
+            <TextField placeholder="Địa chỉ email" ariaLabel="Địa chỉ email" />
+
+            <PasswordField
+              visible={visiblePasswords.signup}
+              placeholder="Mật khẩu"
+              ariaLabel="Mật khẩu"
+              onToggle={() => togglePassword("signup")}
+            />
+
+            <PasswordField
+              visible={visiblePasswords.confirm}
+              placeholder="Xác nhận mật khẩu"
+              ariaLabel="Xác nhận mật khẩu"
+              onToggle={() => togglePassword("confirm")}
+            />
+
+            <CodeField />
+
+            <p className="terms-copy auth-centered-copy">
+              Khi đăng ký, bạn đồng ý với <a href="#">Điều khoản sử dụng</a> và{" "}
+              <a href="#">Chính sách bảo mật</a> của MentorPro.
+            </p>
+
+            <button type="button" className="login-button">
+              Đăng ký
             </button>
-            <button
-              type="button"
-              onClick={() => handleOAuthLogin("GitHub")}
-              disabled={isLoading}
-              className="w-full py-3 px-4 rounded-lg border-2 border-slate-200 text-slate-700 font-semibold hover:border-slate-400 hover:bg-slate-50 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
-            >
-              ⚫ GitHub
-            </button>
-            <button
-              type="button"
-              onClick={handleDemoLogin}
-              disabled={isLoading}
-              className="w-full py-3 px-4 rounded-lg bg-cyan-100 text-cyan-700 font-semibold hover:bg-cyan-200 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
-            >
-              ✨ Quick Demo
+
+            <button type="button" className="auth-text-button" onClick={() => setAuthMode("login")}>
+              Đăng nhập
             </button>
           </div>
+        )}
 
-          <p className="text-center text-sm text-slate-500">
-            Don&apos;t have an account?{" "}
-            <span className="font-semibold text-blue-600 cursor-pointer hover:text-cyan-600">
-              Sign up
-            </span>
-          </p>
-        </div>
-      </main>
+        {authMode === "forgot" && (
+          <div className="login-form auth-alt-form forgot-form">
+            <div className="auth-heading">
+              <h1>Đặt lại mật khẩu</h1>
+              <p>Nhập số điện thoại hoặc địa chỉ email, chúng tôi sẽ gửi mã xác minh để đặt lại mật khẩu.</p>
+            </div>
 
-      <footer className="absolute bottom-8 text-slate-500 text-sm">
-        MentorPro • © 2026
-      </footer>
-    </div>
+            <TextField placeholder="Địa chỉ email / số điện thoại" ariaLabel="Email hoặc số điện thoại" />
+            <CodeField />
+
+            <button type="button" className="login-button">
+              Tiếp tục
+            </button>
+
+            <button type="button" className="auth-text-button" onClick={() => setAuthMode("login")}>
+              Quay lại đăng nhập
+            </button>
+          </div>
+        )}
+      </section>
+
+    </main>
+  );
+}
+
+function TextField({ placeholder, ariaLabel }: { placeholder: string; ariaLabel: string }) {
+  return (
+    <label className="login-input-field">
+      <input type="text" placeholder={placeholder} aria-label={ariaLabel} />
+    </label>
+  );
+}
+
+function PasswordField({
+  visible,
+  placeholder,
+  ariaLabel,
+  onToggle,
+}: {
+  visible: boolean;
+  placeholder: string;
+  ariaLabel: string;
+  onToggle: () => void;
+}) {
+  return (
+    <label className="password-field">
+      <input type={visible ? "text" : "password"} placeholder={placeholder} aria-label={ariaLabel} />
+      <button type="button" onClick={onToggle} aria-label={visible ? "Ẩn mật khẩu" : "Hiện mật khẩu"}>
+        <EyeIcon />
+      </button>
+    </label>
+  );
+}
+
+function CodeField() {
+  return (
+    <label className="code-field">
+      <input type="text" placeholder="Mã" aria-label="Mã xác minh" />
+      <button type="button">Gửi mã</button>
+    </label>
+  );
+}
+
+function EyeIcon() {
+  return (
+    <svg viewBox="0 0 24 24" aria-hidden="true" className="auth-eye-icon">
+      <path
+        d="M2.5 12s3.5-6 9.5-6 9.5 6 9.5 6-3.5 6-9.5 6-9.5-6-9.5-6Z"
+        fill="none"
+        stroke="currentColor"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        strokeWidth="2"
+      />
+      <circle cx="12" cy="12" r="3" fill="none" stroke="currentColor" strokeWidth="2" />
+    </svg>
   );
 }

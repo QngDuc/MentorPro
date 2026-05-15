@@ -27,11 +27,7 @@ export function MetorLogo({ compact = false }: MetorLogoProps) {
         <circle cx="69" cy="47" r="7" fill="#1683f5" />
         <circle cx="76" cy="22" r="7" fill="#1683f5" />
       </svg>
-      {!compact && (
-        <span>
-          Metor<span>AI</span>Pro
-        </span>
-      )}
+      {!compact && <span>MentorPro</span>}
     </div>
   );
 }

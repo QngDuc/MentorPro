@@ -934,32 +934,6 @@ textarea {
   height: 36px;
 }
 
-.deepseek-logo {
-  display: inline-flex;
-  align-items: center;
-  gap: 7px;
-  color: #3567ff;
-  font-size: 1.95rem;
-  font-weight: 900;
-  letter-spacing: -0.06em;
-  line-height: 1;
-}
-
-.deepseek-logo svg {
-  width: 34px;
-  height: 34px;
-  flex: 0 0 auto;
-}
-
-.deepseek-logo-compact {
-  gap: 0;
-}
-
-.deepseek-logo-compact svg {
-  width: 42px;
-  height: 42px;
-}
-
 .login-page {
   display: grid;
   min-height: 100vh;
@@ -981,7 +955,7 @@ textarea {
   gap: 28px;
 }
 
-.login-form > input,
+.login-input-field,
 .password-field {
   display: flex;
   height: 60px;
@@ -992,7 +966,7 @@ textarea {
   padding: 0 20px;
 }
 
-.login-form input,
+.login-input-field input,
 .password-field input {
   width: 100%;
   border: 0;
@@ -1002,7 +976,8 @@ textarea {
   font-size: 1rem;
 }
 
-.login-form input::placeholder {
+.login-input-field input::placeholder,
+.password-field input::placeholder {
   color: #a7afbc;
 }
 
@@ -1546,15 +1521,6 @@ textarea {
   stroke: #3867ff;
 }
 
-.chat-sidebar-top .deepseek-logo {
-  font-size: 1.72rem;
-}
-
-.chat-sidebar-top .deepseek-logo svg {
-  width: 30px;
-  height: 30px;
-}
-
 .sidebar-actions button,
 .message-actions button,
 .composer-tools button,
@@ -1707,6 +1673,65 @@ textarea {
   cursor: pointer;
   padding: 0 10px;
   text-align: left;
+}
+
+.metor-chat-page.sidebar-collapsed {
+  grid-template-columns: 76px minmax(0, 1fr);
+}
+
+.sidebar-collapsed .metor-chat-sidebar {
+  align-items: center;
+  padding: 24px 10px 18px;
+}
+
+.sidebar-collapsed .chat-sidebar-top {
+  flex-direction: column;
+  gap: 14px;
+}
+
+.sidebar-collapsed .chat-sidebar-top .metor-logo svg {
+  width: 42px;
+  height: 34px;
+}
+
+.sidebar-collapsed .sidebar-actions {
+  flex-direction: column;
+}
+
+.sidebar-collapsed .sidebar-search-button,
+.sidebar-collapsed .chat-history,
+.sidebar-collapsed .sidebar-user span,
+.sidebar-collapsed .sidebar-user > .ui-icon {
+  display: none;
+}
+
+.sidebar-collapsed .new-chat-button {
+  width: 48px;
+  padding: 0;
+  gap: 0;
+  margin-top: 26px;
+  font-size: 0;
+}
+
+.sidebar-collapsed .new-chat-button .ui-icon {
+  width: 24px;
+  height: 24px;
+}
+
+.sidebar-collapsed .sidebar-account {
+  margin-top: auto;
+}
+
+.sidebar-collapsed .sidebar-user {
+  width: 48px;
+  height: 48px;
+  justify-content: center;
+  padding: 0;
+}
+
+.sidebar-collapsed .user-avatar {
+  width: 36px;
+  height: 36px;
 }
 
 .metor-chat-main {
@@ -2084,15 +2109,15 @@ textarea {
   padding-top: 188px;
 }
 
-.login-card .deepseek-logo {
-  color: #3867ff;
-  font-size: 2.1rem;
-  letter-spacing: -0.055em;
+.login-card .metor-logo {
+  font-size: 2.35rem;
+  letter-spacing: 0;
+  line-height: 1;
 }
 
-.login-card .deepseek-logo svg {
-  width: 34px;
-  height: 34px;
+.login-card .metor-logo svg {
+  width: 62px;
+  height: 46px;
 }
 
 .login-form {
@@ -2101,7 +2126,7 @@ textarea {
   gap: 24px;
 }
 
-.login-form > input,
+.login-input-field,
 .password-field {
   display: flex;
   width: 100%;
@@ -2113,13 +2138,13 @@ textarea {
   padding: 0 24px;
 }
 
-.login-form > input:focus,
+.login-input-field:focus-within,
 .password-field:focus-within {
   border-color: #9fb5ff;
   outline: 0;
 }
 
-.login-form input,
+.login-input-field input,
 .password-field input {
   width: 100%;
   border: 0;
@@ -2129,7 +2154,8 @@ textarea {
   font-size: 1rem;
 }
 
-.login-form input::placeholder {
+.login-input-field input::placeholder,
+.password-field input::placeholder {
   color: #9da7b7;
 }
 
@@ -2267,9 +2293,9 @@ textarea {
   gap: 14px;
 }
 
-.chat-start-title .deepseek-logo svg {
-  width: 42px;
-  height: 42px;
+.chat-start-title .metor-logo svg {
+  width: 50px;
+  height: 38px;
 }
 
 .chat-start-title h1 {

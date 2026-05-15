@@ -2,7 +2,7 @@
 
 import Image from "next/image";
 import { ClipboardEvent, useEffect, useMemo, useRef, useState } from "react";
-import { DeepseekLogo } from "@/components/metor/DeepseekLogo";
+import { MetorLogo } from "@/components/metor/MetorLogo";
 
 type ChatMode = "chat" | "sentiment" | "summary" | "ocr";
 
@@ -18,6 +18,13 @@ type ChatMessage = {
   content: string;
   imageUrl?: string;
   sentiment?: SentimentResult;
+};
+
+type ChatConversation = {
+  id: string;
+  title: string;
+  messages: ChatMessage[];
+  updatedAt: number;
 };
 
 const chatModes: Array<{
@@ -38,6 +45,9 @@ export default function ChatPage() {
   const [deepThinking, setDeepThinking] = useState(false);
   const [smartSearch, setSmartSearch] = useState(true);
   const [accountMenuOpen, setAccountMenuOpen] = useState(false);
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  const [history, setHistory] = useState<ChatConversation[]>([]);
+  const [activeConversationId, setActiveConversationId] = useState<string | null>(null);
   const [imageFile, setImageFile] = useState<File | null>(null);
   const [imagePreviewUrl, setImagePreviewUrl] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
@@ -49,8 +59,8 @@ export default function ChatPage() {
     [],
   );
 
-  const visibleHistory = messages.filter((message) => message.role === "user").slice(-5).reverse();
   const hasConversation = messages.length > 0 || isLoading;
+  const currentTitle = getConversationTitle(messages);
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -92,6 +102,28 @@ export default function ChatPage() {
   const regenerateLast = () => {
     const lastUserMessage = [...messages].reverse().find((message) => message.role === "user");
     if (lastUserMessage) void handleSend(lastUserMessage.content);
+  };
+
+  const saveCurrentConversation = (currentHistory: ChatConversation[]) => {
+    const title = getConversationTitle(messages);
+    if (!title) return currentHistory;
+
+    const conversation: ChatConversation = {
+      id: activeConversationId ?? crypto.randomUUID(),
+      title,
+      messages,
+      updatedAt: Date.now(),
+    };
+
+    return [conversation, ...currentHistory.filter((item) => item.id !== conversation.id)];
+  };
+
+  const selectConversation = (conversation: ChatConversation) => {
+    setHistory(saveCurrentConversation);
+    setMessages(conversation.messages);
+    setInput("");
+    clearImage();
+    setActiveConversationId(conversation.id);
   };
 
   const handlePaste = (event: ClipboardEvent<HTMLTextAreaElement>) => {
@@ -169,7 +201,7 @@ export default function ChatPage() {
           ai_response?: string;
           sentiment?: { ai_sentiment?: SentimentResult };
         };
-        replies.push(chatData.ai_response || "MetorAIPro chưa có phản hồi.");
+        replies.push(chatData.ai_response || "MentorPro chưa có phản hồi.");
         aiSentiment = chatData.sentiment?.ai_sentiment;
       }
 
@@ -198,21 +230,28 @@ export default function ChatPage() {
   };
 
   const handleNewChat = () => {
+    setHistory(saveCurrentConversation);
     setMessages([]);
     setInput("");
     clearImage();
+    setActiveConversationId(null);
   };
 
   return (
-    <main className="metor-chat-page">
+    <main className={sidebarCollapsed ? "metor-chat-page sidebar-collapsed" : "metor-chat-page"}>
       <aside className="metor-chat-sidebar">
         <div className="chat-sidebar-top">
-          <DeepseekLogo />
+          <MetorLogo compact={sidebarCollapsed} />
           <div className="sidebar-actions">
-            <button type="button" aria-label="Tìm kiếm">
+            <button type="button" aria-label="Tìm kiếm" className="sidebar-search-button">
               <Icon name="search" />
             </button>
-            <button type="button" aria-label="Đóng thanh bên">
+            <button
+              type="button"
+              aria-label={sidebarCollapsed ? "Mở thanh bên" : "Thu hẹp thanh bên"}
+              aria-pressed={sidebarCollapsed}
+              onClick={() => setSidebarCollapsed((value) => !value)}
+            >
               <Icon name="panel" />
             </button>
           </div>
@@ -223,19 +262,25 @@ export default function ChatPage() {
           Trò chuyện mới
         </button>
 
-        <div className="chat-history">
+        <div className={history.length ? "chat-history" : "chat-history is-empty"}>
           <span>Hôm nay</span>
-          {visibleHistory.length ? (
-            visibleHistory.map((message, index) => (
-              <button type="button" key={message.id} className={index === 0 ? "active" : ""}>
-                <span>{message.content}</span>
+          {history.length ? (
+            history.map((conversation) => (
+              <button
+                type="button"
+                key={conversation.id}
+                className={conversation.id === activeConversationId ? "active" : ""}
+                onClick={() => selectConversation(conversation)}
+              >
+                <span>{conversation.title}</span>
                 <Icon name="more" />
               </button>
             ))
           ) : (
-            <button type="button">
-              <span>Chào hỏi và hỗ trợ</span>
-            </button>
+            <div className="no-chat-history">
+              <Icon name="list" />
+              <span>Chưa có lịch sử</span>
+            </div>
           )}
         </div>
 
@@ -274,7 +319,7 @@ export default function ChatPage() {
         {hasConversation ? (
           <div className="chat-conversation-head">
             <div>
-              <strong>Greeting and Assistance</strong>
+              <strong>{currentTitle || "Trò chuyện mới"}</strong>
               <span>
                 <Icon name="sparkles" />
                 Nhanh
@@ -342,7 +387,7 @@ export default function ChatPage() {
                 <article className="chat-message assistant">
                   <div className="message-stack">
                     <div className="message-bubble typing-bubble">
-                      <p>MetorAIPro đang suy nghĩ...</p>
+                      <p>MentorPro đang suy nghĩ...</p>
                     </div>
                   </div>
                 </article>
@@ -352,7 +397,7 @@ export default function ChatPage() {
           ) : (
             <div className="chat-start">
               <div className="chat-start-title">
-                <DeepseekLogo compact />
+                <MetorLogo compact />
                 <h1>Chế độ Nhanh</h1>
               </div>
               <ModeSwitcher activeMode={activeMode} onModeChange={setActiveMode} />
@@ -382,7 +427,7 @@ export default function ChatPage() {
                   void handleSend();
                 }
               }}
-              placeholder="Nhắn tin cho DeepSeek"
+              placeholder="Nhắn tin cho MentorPro"
               rows={2}
             />
 
@@ -438,6 +483,14 @@ export default function ChatPage() {
       </section>
     </main>
   );
+}
+
+function getConversationTitle(messages: ChatMessage[]) {
+  const firstUserMessage = messages.find((message) => message.role === "user");
+  if (!firstUserMessage) return "";
+
+  const title = firstUserMessage.content.replace(/\s+/g, " ").trim();
+  return title.length > 64 ? `${title.slice(0, 61)}...` : title;
 }
 
 function ModeSwitcher({

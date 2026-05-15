@@ -25,7 +25,11 @@ type ChatConversation = {
   title: string;
   messages: ChatMessage[];
   updatedAt: number;
+  pinned?: boolean;
 };
+
+type SettingsTab = "general" | "profile" | "data" | "about";
+type ThemeMode = "light" | "dark" | "system";
 
 const chatModes: Array<{
   id: ChatMode;
@@ -45,9 +49,16 @@ export default function ChatPage() {
   const [deepThinking, setDeepThinking] = useState(false);
   const [smartSearch, setSmartSearch] = useState(true);
   const [accountMenuOpen, setAccountMenuOpen] = useState(false);
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  const [settingsTab, setSettingsTab] = useState<SettingsTab>("general");
+  const [themeMode, setThemeMode] = useState<ThemeMode>("light");
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [history, setHistory] = useState<ChatConversation[]>([]);
   const [activeConversationId, setActiveConversationId] = useState<string | null>(null);
+  const [historyMenuId, setHistoryMenuId] = useState<string | null>(null);
+  const [renamingConversationId, setRenamingConversationId] = useState<string | null>(null);
+  const [renameValue, setRenameValue] = useState("");
+  const [deleteConversationId, setDeleteConversationId] = useState<string | null>(null);
   const [imageFile, setImageFile] = useState<File | null>(null);
   const [imagePreviewUrl, setImagePreviewUrl] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
@@ -105,7 +116,8 @@ export default function ChatPage() {
   };
 
   const saveCurrentConversation = (currentHistory: ChatConversation[]) => {
-    const title = getConversationTitle(messages);
+    const existingConversation = currentHistory.find((item) => item.id === activeConversationId);
+    const title = existingConversation?.title ?? getConversationTitle(messages);
     if (!title) return currentHistory;
 
     const conversation: ChatConversation = {
@@ -113,9 +125,10 @@ export default function ChatPage() {
       title,
       messages,
       updatedAt: Date.now(),
+      pinned: existingConversation?.pinned,
     };
 
-    return [conversation, ...currentHistory.filter((item) => item.id !== conversation.id)];
+    return sortConversations([conversation, ...currentHistory.filter((item) => item.id !== conversation.id)]);
   };
 
   const selectConversation = (conversation: ChatConversation) => {
@@ -124,6 +137,63 @@ export default function ChatPage() {
     setInput("");
     clearImage();
     setActiveConversationId(conversation.id);
+    setHistoryMenuId(null);
+    setRenamingConversationId(null);
+  };
+
+  const startRenameConversation = (conversation: ChatConversation) => {
+    setRenamingConversationId(conversation.id);
+    setRenameValue(conversation.title);
+    setHistoryMenuId(null);
+  };
+
+  const commitRenameConversation = () => {
+    const title = renameValue.trim();
+    if (!renamingConversationId || !title) {
+      setRenamingConversationId(null);
+      return;
+    }
+
+    setHistory((current) =>
+      current.map((conversation) =>
+        conversation.id === renamingConversationId ? { ...conversation, title } : conversation,
+      ),
+    );
+    setRenamingConversationId(null);
+  };
+
+  const togglePinnedConversation = (conversationId: string) => {
+    setHistory((current) =>
+      sortConversations(
+        current.map((conversation) =>
+          conversation.id === conversationId ? { ...conversation, pinned: !conversation.pinned } : conversation,
+        ),
+      ),
+    );
+    setHistoryMenuId(null);
+  };
+
+  const shareConversation = async (conversation: ChatConversation) => {
+    await navigator.clipboard?.writeText(conversation.title);
+    setHistoryMenuId(null);
+  };
+
+  const confirmDeleteConversation = (conversationId: string) => {
+    setDeleteConversationId(conversationId);
+    setHistoryMenuId(null);
+  };
+
+  const deleteConversation = () => {
+    if (!deleteConversationId) return;
+
+    setHistory((current) => current.filter((conversation) => conversation.id !== deleteConversationId));
+    if (activeConversationId === deleteConversationId) {
+      setMessages([]);
+      setInput("");
+      clearImage();
+      setActiveConversationId(null);
+    }
+    setDeleteConversationId(null);
   };
 
   const handlePaste = (event: ClipboardEvent<HTMLTextAreaElement>) => {
@@ -238,7 +308,15 @@ export default function ChatPage() {
   };
 
   return (
-    <main className={sidebarCollapsed ? "metor-chat-page sidebar-collapsed" : "metor-chat-page"}>
+    <main
+      className={[
+        "metor-chat-page",
+        sidebarCollapsed ? "sidebar-collapsed" : "",
+        themeMode === "dark" ? "chat-theme-dark" : "",
+      ]
+        .filter(Boolean)
+        .join(" ")}
+    >
       <aside className="metor-chat-sidebar">
         <div className="chat-sidebar-top">
           <MetorLogo compact={sidebarCollapsed} />
@@ -266,15 +344,61 @@ export default function ChatPage() {
           <span>Hôm nay</span>
           {history.length ? (
             history.map((conversation) => (
-              <button
-                type="button"
+              <div
                 key={conversation.id}
-                className={conversation.id === activeConversationId ? "active" : ""}
-                onClick={() => selectConversation(conversation)}
+                className={conversation.id === activeConversationId ? "chat-history-item active" : "chat-history-item"}
               >
-                <span>{conversation.title}</span>
-                <Icon name="more" />
-              </button>
+                {renamingConversationId === conversation.id ? (
+                  <input
+                    value={renameValue}
+                    onChange={(event) => setRenameValue(event.target.value)}
+                    onBlur={commitRenameConversation}
+                    onKeyDown={(event) => {
+                      if (event.key === "Enter") commitRenameConversation();
+                      if (event.key === "Escape") setRenamingConversationId(null);
+                    }}
+                    aria-label="Đổi tên cuộc trò chuyện"
+                    autoFocus
+                  />
+                ) : (
+                  <button type="button" className="history-title-button" onClick={() => selectConversation(conversation)}>
+                    {conversation.pinned && <Icon name="pin" />}
+                    <span>{conversation.title}</span>
+                  </button>
+                )}
+
+                {renamingConversationId !== conversation.id && (
+                  <button
+                    type="button"
+                    className="history-more-button"
+                    aria-label="Tùy chọn cuộc trò chuyện"
+                    onClick={() => setHistoryMenuId((value) => (value === conversation.id ? null : conversation.id))}
+                  >
+                    <Icon name="more" />
+                  </button>
+                )}
+
+                {historyMenuId === conversation.id && (
+                  <div className="history-context-menu">
+                    <button type="button" onClick={() => startRenameConversation(conversation)}>
+                      <Icon name="edit" />
+                      Đổi tên
+                    </button>
+                    <button type="button" onClick={() => togglePinnedConversation(conversation.id)}>
+                      <Icon name="pin" />
+                      {conversation.pinned ? "Bỏ ghim" : "Ghim"}
+                    </button>
+                    <button type="button" onClick={() => void shareConversation(conversation)}>
+                      <Icon name="share" />
+                      Chia sẻ
+                    </button>
+                    <button type="button" className="danger" onClick={() => confirmDeleteConversation(conversation.id)}>
+                      <Icon name="trash" />
+                      Xóa
+                    </button>
+                  </div>
+                )}
+              </div>
             ))
           ) : (
             <div className="no-chat-history">
@@ -288,6 +412,17 @@ export default function ChatPage() {
           {accountMenuOpen && (
             <div className="account-menu">
               <button type="button">
+                <Icon name="phone" />
+                Tải ứng dụng di động
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setSettingsOpen(true);
+                  setSettingsTab("general");
+                  setAccountMenuOpen(false);
+                }}
+              >
                 <Icon name="settings" />
                 Cài đặt
               </button>
@@ -314,6 +449,33 @@ export default function ChatPage() {
           </button>
         </div>
       </aside>
+
+      {settingsOpen && (
+        <SettingsDialog
+          activeTab={settingsTab}
+          themeMode={themeMode}
+          onClose={() => setSettingsOpen(false)}
+          onTabChange={setSettingsTab}
+          onThemeChange={setThemeMode}
+        />
+      )}
+
+      {deleteConversationId && (
+        <div className="delete-chat-overlay" role="dialog" aria-modal="true" aria-label="Xóa cuộc trò chuyện">
+          <div className="delete-chat-dialog">
+            <h2>Sau khi xóa, cuộc trò chuyện này sẽ không thể khôi phục.</h2>
+            <p>Các liên kết chia sẻ từ đó cũng sẽ mất hiệu lực.</p>
+            <div>
+              <button type="button" onClick={() => setDeleteConversationId(null)}>
+                Hủy
+              </button>
+              <button type="button" className="danger" onClick={deleteConversation}>
+                Xóa đoạn chat
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       <section className={hasConversation ? "metor-chat-main" : "metor-chat-main empty-chat"}>
         {hasConversation ? (
@@ -485,12 +647,154 @@ export default function ChatPage() {
   );
 }
 
+function SettingsDialog({
+  activeTab,
+  themeMode,
+  onClose,
+  onTabChange,
+  onThemeChange,
+}: {
+  activeTab: SettingsTab;
+  themeMode: ThemeMode;
+  onClose: () => void;
+  onTabChange: (tab: SettingsTab) => void;
+  onThemeChange: (theme: ThemeMode) => void;
+}) {
+  const tabs: Array<{ id: SettingsTab; label: string; icon: IconName }> = [
+    { id: "general", label: "Chung", icon: "settings" },
+    { id: "profile", label: "Hồ sơ", icon: "user" },
+    { id: "data", label: "Dữ liệu", icon: "database" },
+    { id: "about", label: "Giới thiệu", icon: "note" },
+  ];
+
+  const themes: Array<{ id: ThemeMode; label: string; icon: IconName }> = [
+    { id: "light", label: "Sáng", icon: "sun" },
+    { id: "dark", label: "Tối", icon: "moon" },
+    { id: "system", label: "Hệ thống", icon: "monitor" },
+  ];
+
+  return (
+    <div className="settings-overlay" role="dialog" aria-modal="true" aria-label="Cài đặt">
+      <div className="settings-dialog">
+        <div className="settings-dialog-head">
+          <h2>Cài đặt</h2>
+          <button type="button" onClick={onClose} aria-label="Đóng cài đặt">
+            <Icon name="close" />
+          </button>
+        </div>
+
+        <div className="settings-layout">
+          <nav className="settings-tabs" aria-label="Danh mục cài đặt">
+            {tabs.map((tab) => (
+              <button
+                type="button"
+                key={tab.id}
+                className={activeTab === tab.id ? "active" : ""}
+                onClick={() => onTabChange(tab.id)}
+              >
+                <Icon name={tab.icon} />
+                {tab.label}
+              </button>
+            ))}
+          </nav>
+
+          <div className="settings-panel">
+            {activeTab === "general" && (
+              <>
+                <section className="settings-section">
+                  <h3>Chủ đề</h3>
+                  <div className="theme-options">
+                    {themes.map((theme) => (
+                      <button
+                        type="button"
+                        key={theme.id}
+                        className={themeMode === theme.id ? "active" : ""}
+                        onClick={() => onThemeChange(theme.id)}
+                      >
+                        <Icon name={theme.icon} />
+                        <span>{theme.label}</span>
+                      </button>
+                    ))}
+                  </div>
+                </section>
+
+                <section className="settings-section settings-language-row">
+                  <h3>Ngôn ngữ</h3>
+                  <button type="button">
+                    Hệ thống
+                    <Icon name="chevronDown" />
+                  </button>
+                </section>
+              </>
+            )}
+
+            {activeTab === "profile" && (
+              <section className="profile-settings">
+                <div className="profile-row">
+                  <span>Tên</span>
+                  <strong>
+                    Khang Nguyễn
+                    <span className="google-mark">G</span>
+                  </strong>
+                </div>
+                <div className="profile-row">
+                  <span>Địa chỉ email</span>
+                  <strong>khan********nnie@gmail.com</strong>
+                </div>
+                <div className="profile-row">
+                  <span>Số điện thoại</span>
+                  <strong>-</strong>
+                </div>
+                <div className="profile-row danger-row">
+                  <span>Đăng xuất khỏi tất cả thiết bị</span>
+                  <button type="button">Đăng xuất</button>
+                </div>
+                <div className="profile-row danger-row">
+                  <span>Xóa tài khoản</span>
+                  <button type="button">Xóa</button>
+                </div>
+              </section>
+            )}
+
+            {activeTab === "data" && (
+              <section className="settings-placeholder">
+                <h3>Dữ liệu</h3>
+                <p>Quản lý lịch sử trò chuyện và dữ liệu tài khoản của bạn.</p>
+              </section>
+            )}
+
+            {activeTab === "about" && (
+              <section className="about-settings">
+                <div className="about-row">
+                  <span>Điều khoản sử dụng</span>
+                  <button type="button">Xem</button>
+                </div>
+                <div className="about-row">
+                  <span>Chính sách bảo mật</span>
+                  <button type="button">Xem</button>
+                </div>
+              </section>
+            )}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function getConversationTitle(messages: ChatMessage[]) {
   const firstUserMessage = messages.find((message) => message.role === "user");
   if (!firstUserMessage) return "";
 
   const title = firstUserMessage.content.replace(/\s+/g, " ").trim();
   return title.length > 64 ? `${title.slice(0, 61)}...` : title;
+}
+
+function sortConversations(conversations: ChatConversation[]) {
+  return [...conversations].sort((first, second) => {
+    if (first.pinned !== second.pinned) return first.pinned ? -1 : 1;
+    return second.updatedAt - first.updatedAt;
+  });
 }
 
 function ModeSwitcher({
@@ -547,7 +851,10 @@ async function readApiError(response: Response, fallback: string) {
 type IconName =
   | "arrowUp"
   | "brain"
+  | "chevronDown"
+  | "close"
   | "copy"
+  | "database"
   | "edit"
   | "globe"
   | "heart"
@@ -556,9 +863,14 @@ type IconName =
   | "help"
   | "list"
   | "logout"
+  | "monitor"
+  | "moon"
   | "more"
+  | "note"
   | "panel"
   | "paperclip"
+  | "phone"
+  | "pin"
   | "plus"
   | "refresh"
   | "scan"
@@ -566,8 +878,11 @@ type IconName =
   | "settings"
   | "share"
   | "sparkles"
+  | "sun"
   | "thumbDown"
-  | "thumbUp";
+  | "thumbUp"
+  | "trash"
+  | "user";
 
 function Icon({ name }: { name: IconName }) {
   const common = {
@@ -599,6 +914,53 @@ function Icon({ name }: { name: IconName }) {
         </>
       )}
       {name === "more" && <path d="M6 12h.01M12 12h.01M18 12h.01" {...common} />}
+      {name === "close" && <path d="M6 6l12 12M18 6 6 18" {...common} />}
+      {name === "chevronDown" && <path d="m6 9 6 6 6-6" {...common} />}
+      {name === "phone" && (
+        <>
+          <rect x="7" y="3" width="10" height="18" rx="2" {...common} />
+          <path d="M11 18h2" {...common} />
+        </>
+      )}
+      {name === "pin" && <path d="m15 4 5 5-4 1-4 4 1 4-1 1-7-7 1-1 4 1 4-4 1-4Z" {...common} />}
+      {name === "trash" && (
+        <>
+          <path d="M3 6h18M8 6V4h8v2M6 6l1 15h10l1-15" {...common} />
+          <path d="M10 11v6M14 11v6" {...common} />
+        </>
+      )}
+      {name === "user" && (
+        <>
+          <circle cx="12" cy="8" r="4" {...common} />
+          <path d="M4 21a8 8 0 0 1 16 0" {...common} />
+        </>
+      )}
+      {name === "database" && (
+        <>
+          <ellipse cx="12" cy="5" rx="7" ry="3" {...common} />
+          <path d="M5 5v10c0 1.7 3.1 3 7 3s7-1.3 7-3V5M5 10c0 1.7 3.1 3 7 3s7-1.3 7-3" {...common} />
+          <path d="M16.5 17.5 19 20l3-4" {...common} />
+        </>
+      )}
+      {name === "note" && (
+        <>
+          <path d="M6 3h9l3 3v15H6V3Z" {...common} />
+          <path d="M14 3v4h4M9 11h6M9 15h4M16 19l2 2 4-5" {...common} />
+        </>
+      )}
+      {name === "sun" && (
+        <>
+          <circle cx="12" cy="12" r="4" {...common} />
+          <path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4" {...common} />
+        </>
+      )}
+      {name === "moon" && <path d="M20 14.5A8 8 0 0 1 9.5 4a7 7 0 1 0 10.5 10.5Z" {...common} />}
+      {name === "monitor" && (
+        <>
+          <rect x="5" y="4" width="14" height="11" rx="2" {...common} />
+          <path d="M8 20h8M12 15v5" {...common} />
+        </>
+      )}
       {name === "settings" && (
         <>
           <circle cx="12" cy="12" r="3" {...common} />

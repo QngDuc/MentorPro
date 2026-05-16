@@ -1,5 +1,5 @@
-@import "tailwindcss";
 @import url('https://fonts.googleapis.com/css2?family=Unica+One&display=swap');
+@import "tailwindcss";
 
 @layer utilities {
   .delay-2000 { animation-delay: 2s; }

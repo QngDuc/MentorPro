@@ -456,3 +456,278 @@
   opacity: 0.4;
   cursor: not-allowed;
 }
+
+/* Screen reader only content */
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border-width: 0;
+}
+
+/* Loading state animation */
+@keyframes pulse-soft {
+  0%, 100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.6;
+  }
+}
+
+.chat-message.assistant .message-bubble:has(p:contains("suy nghĩ")) {
+  animation: pulse-soft 1.5s ease-in-out infinite;
+}
+
+/* Improved focus states for accessibility */
+.logo-btn:focus,
+.collapse-btn:focus,
+.new-chat-btn:focus,
+.nav-item:focus,
+.user-btn:focus,
+.example-card:focus,
+.attach-btn:focus,
+.send-btn:focus {
+  outline: 2px solid var(--accent-blue);
+  outline-offset: 2px;
+}
+
+/* Better keyboard navigation indicators */
+.logo-btn:focus-visible,
+.collapse-btn:focus-visible,
+.new-chat-btn:focus-visible,
+.nav-item:focus-visible,
+.user-btn:focus-visible,
+.example-card:focus-visible,
+.attach-btn:focus-visible,
+.send-btn:focus-visible {
+  outline: 2px solid var(--accent-blue);
+  outline-offset: 2px;
+}
+
+/* Textarea custom styling */
+.chat-input-box textarea::-webkit-scrollbar {
+  width: 6px;
+}
+
+.chat-input-box textarea::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.chat-input-box textarea::-webkit-scrollbar-thumb {
+  background: var(--dark-border);
+  border-radius: 3px;
+}
+
+.chat-input-box textarea::-webkit-scrollbar-thumb:hover {
+  background: var(--dark-text-secondary);
+}
+
+/* Responsive design for tablets */
+@media (max-width: 768px) {
+  .chat-sidebar {
+    width: 200px;
+    padding: 16px;
+  }
+
+  .chat-sidebar[data-collapsed="true"] {
+    width: 70px;
+  }
+
+  .chat-content {
+    padding: 30px 20px;
+  }
+
+  .welcome-section {
+    gap: 30px;
+  }
+
+  .greeting h2 {
+    font-size: 2rem;
+  }
+
+  .greeting p {
+    font-size: 1.3rem;
+  }
+
+  .examples-grid {
+    grid-template-columns: repeat(2, 1fr);
+    gap: 16px;
+  }
+
+  .example-card {
+    padding: 16px;
+    gap: 10px;
+    font-size: 0.9rem;
+  }
+
+  .chat-header {
+    padding: 0 20px;
+  }
+
+  .chat-composer-area {
+    padding: 16px 20px 20px;
+  }
+
+  .message-bubble {
+    max-width: 85%;
+  }
+}
+
+/* Responsive design for mobile */
+@media (max-width: 480px) {
+  .chat-sidebar {
+    width: 100%;
+    position: absolute;
+    height: 100%;
+    z-index: 1000;
+    border-right: none;
+    border-left: 1px solid var(--dark-border);
+    left: -100%;
+    transition: left 0.3s ease;
+  }
+
+  .chat-sidebar[data-collapsed="false"] {
+    left: 0;
+  }
+
+  .chat-layout {
+    flex-direction: column;
+  }
+
+  .chat-main {
+    width: 100%;
+  }
+
+  .chat-content {
+    padding: 20px 12px;
+  }
+
+  .welcome-section {
+    gap: 20px;
+    padding-top: 20px;
+  }
+
+  .greeting h2 {
+    font-size: 1.5rem;
+  }
+
+  .greeting p {
+    font-size: 1rem;
+  }
+
+  .examples-grid {
+    grid-template-columns: 1fr;
+    gap: 12px;
+  }
+
+  .example-card {
+    padding: 14px;
+    gap: 10px;
+    font-size: 0.85rem;
+  }
+
+  .example-icon {
+    font-size: 1.5rem;
+  }
+
+  .chat-input-box {
+    flex-wrap: wrap;
+  }
+
+  .chat-input-box textarea {
+    width: 100%;
+    padding: 6px;
+  }
+
+  .input-actions {
+    width: 100%;
+    justify-content: flex-end;
+  }
+
+  .message-bubble {
+    max-width: 100%;
+  }
+
+  .chat-header {
+    padding: 0 12px;
+    height: 50px;
+  }
+
+  .header-content h1 {
+    font-size: 0.9rem;
+  }
+
+  .chat-composer-area {
+    padding: 12px;
+  }
+
+  .composer-preview {
+    padding: 8px;
+    margin-bottom: 12px;
+  }
+
+  .composer-preview img {
+    width: 40px;
+    height: 40px;
+  }
+}
+
+/* Dark mode scrollbar styling */
+.chat-content::-webkit-scrollbar {
+  width: 8px;
+}
+
+.chat-content::-webkit-scrollbar-track {
+  background: var(--dark-bg);
+}
+
+.chat-content::-webkit-scrollbar-thumb {
+  background: var(--dark-border);
+  border-radius: 4px;
+}
+
+.chat-content::-webkit-scrollbar-thumb:hover {
+  background: var(--dark-text-secondary);
+}
+
+/* Better transitions and animations */
+* {
+  transition-property: background-color, border-color, color, opacity;
+  transition-duration: 0.2s;
+}
+
+/* Smooth scrolling */
+html {
+  scroll-behavior: smooth;
+}
+
+/* Message animation on appearance */
+@keyframes slideIn {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.chat-message {
+  animation: slideIn 0.3s ease-out;
+}
+
+/* Improved button interactions */
+button {
+  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+button:active:not(:disabled) {
+  transform: scale(0.98);
+}

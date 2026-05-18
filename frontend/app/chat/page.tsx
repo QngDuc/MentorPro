@@ -1,8 +1,11 @@
 "use client";
 
 import Image from "next/image";
+import { useRouter } from "next/navigation";
 import { ClipboardEvent, useEffect, useMemo, useRef, useState } from "react";
 import { MetorLogo } from "@/components/metor/MetorLogo";
+import { useAuth } from "@/context/AuthContext";
+import { ocrRequest } from "@/lib/api";
 
 type ChatMode = "chat" | "sentiment" | "summary" | "ocr";
 
@@ -16,6 +19,7 @@ type ChatMessage = {
   id: string;
   role: "user" | "assistant" | "system";
   content: string;
+  timestamp?: string;
   imageUrl?: string;
   sentiment?: SentimentResult;
 };
@@ -25,6 +29,8 @@ type ChatConversation = {
   title: string;
   messages: ChatMessage[];
   updatedAt: number;
+  createdAt?: string;
+  pinnedAt?: string | null;
   pinned?: boolean;
 };
 
@@ -42,7 +48,13 @@ const chatModes: Array<{
   { id: "ocr", label: "Hình ảnh", caption: "Hình ảnh", icon: "image" },
 ];
 
+const CHAT_STORAGE_KEY = "mp_chats";
+const OCR_MAX_FILE_SIZE_BYTES = 5 * 1024 * 1024;
+const OCR_ACCEPTED_TYPES = new Set(["image/jpeg", "image/png", "image/webp"]);
+
 export default function ChatPage() {
+  const router = useRouter();
+  const { token, logout } = useAuth();
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [input, setInput] = useState("");
   const [activeMode, setActiveMode] = useState<ChatMode>("chat");
@@ -57,12 +69,17 @@ export default function ChatPage() {
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [history, setHistory] = useState<ChatConversation[]>([]);
   const [activeConversationId, setActiveConversationId] = useState<string | null>(null);
+  const [historyLoaded, setHistoryLoaded] = useState(false);
   const [historyMenuId, setHistoryMenuId] = useState<string | null>(null);
   const [renamingConversationId, setRenamingConversationId] = useState<string | null>(null);
   const [renameValue, setRenameValue] = useState("");
   const [deleteConversationId, setDeleteConversationId] = useState<string | null>(null);
+  const [toastMessage, setToastMessage] = useState("");
+  const [debouncedSearchQuery, setDebouncedSearchQuery] = useState("");
   const [imageFile, setImageFile] = useState<File | null>(null);
   const [imagePreviewUrl, setImagePreviewUrl] = useState<string | null>(null);
+  const [ocrError, setOcrError] = useState("");
+  const [isOcrLoading, setIsOcrLoading] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
@@ -73,7 +90,8 @@ export default function ChatPage() {
   );
 
   const hasConversation = messages.length > 0 || isLoading;
-  const currentTitle = getConversationTitle(messages);
+  const activeConversation = history.find((conversation) => conversation.id === activeConversationId);
+  const currentTitle = activeConversation?.title ?? getConversationTitle(messages);
   const activeModeConfig = chatModes.find((mode) => mode.id === activeMode) ?? chatModes[0];
   const searchableConversations = useMemo(() => {
     const currentConversationTitle = getConversationTitle(messages);
@@ -94,8 +112,8 @@ export default function ChatPage() {
     ]);
   }, [activeConversationId, history, messages]);
   const searchResults = useMemo(
-    () => searchConversations(searchableConversations, searchQuery),
-    [searchableConversations, searchQuery],
+    () => searchConversations(searchableConversations, debouncedSearchQuery),
+    [debouncedSearchQuery, searchableConversations],
   );
 
   useEffect(() => {
@@ -103,13 +121,59 @@ export default function ChatPage() {
   }, [messages, isLoading]);
 
   useEffect(() => {
+    queueMicrotask(() => {
+      const conversations = loadStoredConversations();
+      const sharedConversationId = new URLSearchParams(window.location.search).get("id");
+      const sharedConversation = sharedConversationId
+        ? conversations.find((conversation) => conversation.id === sharedConversationId)
+        : undefined;
+
+      setHistory(conversations);
+      if (sharedConversation) {
+        setMessages(sharedConversation.messages);
+        setActiveConversationId(sharedConversation.id);
+      }
+      setHistoryLoaded(true);
+    });
+  }, []);
+
+  useEffect(() => {
+    if (!historyLoaded) return;
+    window.localStorage.setItem(CHAT_STORAGE_KEY, JSON.stringify(sortConversations(history)));
+  }, [history, historyLoaded]);
+
+  useEffect(() => {
+    if (!historyLoaded || !messages.length) return;
+    queueMicrotask(() => {
+      setHistory((current) => saveMessagesToHistory(current, messages, activeConversationId));
+    });
+  }, [activeConversationId, historyLoaded, messages]);
+
+  useEffect(() => {
+    const timeout = window.setTimeout(() => setDebouncedSearchQuery(searchQuery), 300);
+    return () => window.clearTimeout(timeout);
+  }, [searchQuery]);
+
+  useEffect(() => {
+    if (!toastMessage) return;
+    const timeout = window.setTimeout(() => setToastMessage(""), 2400);
+    return () => window.clearTimeout(timeout);
+  }, [toastMessage]);
+
+  useEffect(() => {
     return () => {
       if (imagePreviewUrl) URL.revokeObjectURL(imagePreviewUrl);
     };
   }, [imagePreviewUrl]);
 
-  const attachImage = (file: File) => {
-    if (!file.type.startsWith("image/")) return;
+  const attachImage = async (file: File) => {
+    setOcrError("");
+
+    const validationError = validateOcrFile(file);
+    if (validationError) {
+      setOcrError(validationError);
+      return;
+    }
 
     setImagePreviewUrl((current) => {
       if (current) URL.revokeObjectURL(current);
@@ -117,6 +181,24 @@ export default function ChatPage() {
     });
     setImageFile(file);
     setActiveMode("ocr");
+    return;
+    setIsOcrLoading(true);
+
+    try {
+      const data = await ocrRequest(file, token);
+      const extractedText = data.text?.trim();
+      if (extractedText) {
+        setInput((current) => [current.trim(), extractedText].filter(Boolean).join("\n\n"));
+        setToastMessage("Đã trích xuất OCR.");
+      } else {
+        setOcrError("Không phát hiện văn bản trong ảnh.");
+      }
+    } catch (error) {
+      setOcrError(String(error));
+    } finally {
+      setImageFile(null);
+      setIsOcrLoading(false);
+    }
   };
 
   const clearImage = (revoke = true) => {
@@ -125,6 +207,8 @@ export default function ChatPage() {
       return null;
     });
     setImageFile(null);
+    setOcrError("");
+    setIsOcrLoading(false);
   };
 
   const copyText = async (text: string) => {
@@ -145,11 +229,14 @@ export default function ChatPage() {
     const title = existingConversation?.title ?? getConversationTitle(messages);
     if (!title) return currentHistory;
 
+    const now = new Date().toISOString();
     const conversation: ChatConversation = {
       id: activeConversationId ?? crypto.randomUUID(),
       title,
       messages,
       updatedAt: Date.now(),
+      createdAt: existingConversation?.createdAt ?? now,
+      pinnedAt: existingConversation?.pinnedAt ?? null,
       pinned: existingConversation?.pinned,
     };
 
@@ -184,6 +271,7 @@ export default function ChatPage() {
         conversation.id === renamingConversationId ? { ...conversation, title } : conversation,
       ),
     );
+    setToastMessage("Đã đổi tên cuộc trò chuyện.");
     setRenamingConversationId(null);
   };
 
@@ -191,15 +279,23 @@ export default function ChatPage() {
     setHistory((current) =>
       sortConversations(
         current.map((conversation) =>
-          conversation.id === conversationId ? { ...conversation, pinned: !conversation.pinned } : conversation,
+          conversation.id === conversationId
+            ? {
+                ...conversation,
+                pinned: !conversation.pinned,
+                pinnedAt: conversation.pinned ? null : new Date().toISOString(),
+              }
+            : conversation,
         ),
       ),
     );
+    setToastMessage("Đã cập nhật ghim.");
     setHistoryMenuId(null);
   };
 
   const shareConversation = async (conversation: ChatConversation) => {
-    await navigator.clipboard?.writeText(conversation.title);
+    await navigator.clipboard?.writeText(`${window.location.origin}/chat?id=${conversation.id}`);
+    setToastMessage("Đã copy link.");
     setHistoryMenuId(null);
   };
 
@@ -218,6 +314,7 @@ export default function ChatPage() {
       clearImage();
       setActiveConversationId(null);
     }
+    setToastMessage("Đã xóa.");
     setDeleteConversationId(null);
   };
 
@@ -233,13 +330,38 @@ export default function ChatPage() {
   };
 
   const handleSend = async (overrideText?: string) => {
-    const text = (overrideText ?? input).trim();
-    if (!text && !imageFile) return;
+    let text = (overrideText ?? input).trim();
+    if ((!text && !imageFile) || isOcrLoading) return;
+
+    if (imageFile) {
+      setIsOcrLoading(true);
+      setOcrError("");
+      try {
+        const data = await ocrRequest(imageFile, token);
+        const extractedText = data.text?.trim();
+        if (!extractedText) {
+          setOcrError("Không phát hiện văn bản trong ảnh.");
+          return;
+        }
+
+        text = [text, extractedText].filter(Boolean).join("\n\n");
+        if (!overrideText) setInput(text);
+      } catch (error) {
+        setOcrError(String(error));
+        return;
+      } finally {
+        setIsOcrLoading(false);
+      }
+    }
 
     const requestId = crypto.randomUUID();
-    const token = window.localStorage.getItem("token");
-    const headers = token ? { Authorization: `Bearer ${token}` } : undefined;
+    const conversationId = activeConversationId ?? crypto.randomUUID();
+    const requestToken = window.localStorage.getItem("token");
+    const headers = requestToken ? { Authorization: `Bearer ${requestToken}` } : undefined;
+    const now = new Date().toISOString();
     const userContent = text || "Trích xuất nội dung từ ảnh này.";
+
+    if (!activeConversationId) setActiveConversationId(conversationId);
 
     if (!overrideText) {
       setMessages((current) => [
@@ -248,6 +370,7 @@ export default function ChatPage() {
           id: `${requestId}-user`,
           role: "user",
           content: userContent,
+          timestamp: now,
           imageUrl: imagePreviewUrl ?? undefined,
         },
       ]);
@@ -274,6 +397,8 @@ export default function ChatPage() {
         }
 
         const ocrData = (await ocrResponse.json()) as { text?: string };
+        const extractedText = ocrData.text?.trim();
+        if (extractedText && !overrideText) setInput(extractedText);
         replies.push(`Kết quả OCR:\n${ocrData.text || "Không phát hiện văn bản trong ảnh."}`);
       }
 
@@ -306,6 +431,7 @@ export default function ChatPage() {
           id: `${requestId}-assistant`,
           role: "assistant",
           content: replies.join("\n\n"),
+          timestamp: new Date().toISOString(),
           sentiment: aiSentiment,
         },
       ]);
@@ -336,6 +462,11 @@ export default function ChatPage() {
     if (conversation.id !== "current") selectConversation(conversation);
     setSearchOpen(false);
     setSearchQuery("");
+  };
+
+  const handleLogout = () => {
+    logout();
+    router.push("/login");
   };
 
   return (
@@ -452,7 +583,7 @@ export default function ChatPage() {
         <div className="sidebar-account">
           {accountMenuOpen && (
             <div className="account-menu">
-              <button type="button">
+              <button type="button" onClick={handleLogout}>
                 <Icon name="phone" />
                 Tải ứng dụng di động
               </button>
@@ -505,6 +636,7 @@ export default function ChatPage() {
         <SearchDialog
           query={searchQuery}
           results={searchResults}
+          highlightQuery={debouncedSearchQuery}
           onQueryChange={setSearchQuery}
           onClose={() => setSearchOpen(false)}
           onSelect={selectSearchResult}
@@ -600,6 +732,11 @@ export default function ChatPage() {
                 <article className="chat-message assistant">
                   <div className="message-stack">
                     <div className="message-bubble typing-bubble">
+                      <span className="typing-dots" aria-label="MentorPro đang phản hồi">
+                        <span />
+                        <span />
+                        <span />
+                      </span>
                       <p>MentorPro đang suy nghĩ...</p>
                     </div>
                   </div>
@@ -627,6 +764,9 @@ export default function ChatPage() {
                 Xóa
               </button>
             </div>
+          )}
+          {(isOcrLoading || ocrError) && (
+            <p className="composer-preview-error detached">{isOcrLoading ? "Đang trích xuất OCR..." : ocrError}</p>
           )}
 
           <div className="metor-composer">
@@ -682,7 +822,7 @@ export default function ChatPage() {
                 <button
                   type="button"
                   className="send-chat-button"
-                  disabled={isLoading || (!input.trim() && !imageFile)}
+                  disabled={isLoading || isOcrLoading || (!input.trim() && !imageFile)}
                   onClick={() => void handleSend()}
                   aria-label="Gửi"
                 >
@@ -694,6 +834,7 @@ export default function ChatPage() {
           <p className="composer-note">Được tạo bởi AI, chỉ để tham khảo</p>
         </div>
       </section>
+      {toastMessage && <div className="chat-toast" role="status">{toastMessage}</div>}
     </main>
   );
 }
@@ -701,12 +842,14 @@ export default function ChatPage() {
 function SearchDialog({
   query,
   results,
+  highlightQuery,
   onQueryChange,
   onClose,
   onSelect,
 }: {
   query: string;
   results: ChatConversation[];
+  highlightQuery: string;
   onQueryChange: (query: string) => void;
   onClose: () => void;
   onSelect: (conversation: ChatConversation) => void;
@@ -736,8 +879,8 @@ function SearchDialog({
                   <Icon name="chat" />
                 </span>
                 <span className="search-result-body">
-                  <strong>{conversation.title}</strong>
-                  <span>{getConversationPreview(conversation)}</span>
+                  <strong>{highlightText(conversation.title, highlightQuery)}</strong>
+                  <span>{highlightText(getConversationPreview(conversation), highlightQuery)}</span>
                 </span>
                 <time>{formatConversationTime(conversation.updatedAt)}</time>
               </button>
@@ -900,8 +1043,66 @@ function getConversationTitle(messages: ChatMessage[]) {
 function sortConversations(conversations: ChatConversation[]) {
   return [...conversations].sort((first, second) => {
     if (first.pinned !== second.pinned) return first.pinned ? -1 : 1;
+    if (first.pinned && second.pinned) {
+      return new Date(second.pinnedAt ?? 0).getTime() - new Date(first.pinnedAt ?? 0).getTime();
+    }
     return second.updatedAt - first.updatedAt;
   });
+}
+
+function validateOcrFile(file: File) {
+  if (!OCR_ACCEPTED_TYPES.has(file.type)) {
+    return "Chỉ hỗ trợ ảnh JPEG, PNG hoặc WebP.";
+  }
+
+  if (file.size > OCR_MAX_FILE_SIZE_BYTES) {
+    return "Ảnh tối đa 5MB.";
+  }
+
+  return "";
+}
+
+function loadStoredConversations() {
+  try {
+    const value = window.localStorage.getItem(CHAT_STORAGE_KEY);
+    const conversations = value ? (JSON.parse(value) as ChatConversation[]) : [];
+    return sortConversations(
+      conversations.map((conversation) => ({
+        ...conversation,
+        createdAt: conversation.createdAt ?? new Date(conversation.updatedAt || Date.now()).toISOString(),
+        pinnedAt: conversation.pinnedAt ?? null,
+        messages: conversation.messages.map((message) => ({
+          ...message,
+          timestamp: message.timestamp ?? new Date(conversation.updatedAt || Date.now()).toISOString(),
+        })),
+      })),
+    );
+  } catch {
+    return [];
+  }
+}
+
+function saveMessagesToHistory(
+  currentHistory: ChatConversation[],
+  messages: ChatMessage[],
+  activeConversationId: string | null,
+) {
+  const title = getConversationTitle(messages);
+  if (!title) return currentHistory;
+
+  const existingConversation = currentHistory.find((conversation) => conversation.id === activeConversationId);
+  const now = Date.now();
+  const conversation: ChatConversation = {
+    id: activeConversationId ?? existingConversation?.id ?? crypto.randomUUID(),
+    title: existingConversation?.title ?? title,
+    messages,
+    updatedAt: now,
+    createdAt: existingConversation?.createdAt ?? new Date(now).toISOString(),
+    pinned: existingConversation?.pinned,
+    pinnedAt: existingConversation?.pinnedAt ?? null,
+  };
+
+  return sortConversations([conversation, ...currentHistory.filter((item) => item.id !== conversation.id)]);
 }
 
 function searchConversations(conversations: ChatConversation[], query: string) {
@@ -915,6 +1116,22 @@ function searchConversations(conversations: ChatConversation[], query: string) {
 
     return content.includes(normalizedQuery);
   });
+}
+
+function highlightText(text: string, query: string) {
+  const normalizedQuery = query.trim();
+  if (!normalizedQuery) return text;
+
+  const index = text.toLowerCase().indexOf(normalizedQuery.toLowerCase());
+  if (index === -1) return text;
+
+  return (
+    <>
+      {text.slice(0, index)}
+      <mark>{text.slice(index, index + normalizedQuery.length)}</mark>
+      {text.slice(index + normalizedQuery.length)}
+    </>
+  );
 }
 
 function getConversationPreview(conversation: ChatConversation) {
@@ -1148,3 +1365,4 @@ function Icon({ name }: { name: IconName }) {
     </svg>
   );
 }
+

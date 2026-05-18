@@ -1,98 +1,109 @@
 "use client";
 
-import { FormEvent, useEffect, useMemo, useState } from "react";
+import Image from "next/image";
+import { ChangeEvent, FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { MetorLogo } from "@/components/metor/MetorLogo";
-
-type UserProfile = {
-  user_id?: string;
-  username?: string;
-  email?: string;
-  full_name?: string;
-  category?: string;
-  created_at?: string;
-};
+import { useAuth } from "@/context/AuthContext";
+import { updateProfileRequest } from "@/lib/api";
 
 type ProfileStatus = { type: "error" | "success"; message: string } | null;
 
 export default function ProfilePage() {
   const router = useRouter();
-  const apiBaseUrl = useMemo(() => process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:8000", []);
-  const [user, setUser] = useState<UserProfile | null>(null);
+  const { user, token, logout, refreshUser, updateUser } = useAuth();
   const [fullName, setFullName] = useState("");
   const [category, setCategory] = useState("");
+  const [avatarPreview, setAvatarPreview] = useState<string | null>(null);
   const [status, setStatus] = useState<ProfileStatus>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
+  const avatarInputRef = useRef<HTMLInputElement>(null);
+
+  const avatarUrl = avatarPreview ?? user?.avatar_url ?? user?.preferences?.avatar_url?.toString() ?? "";
+  const avatarStyle = useMemo(
+    () => ({ background: getAvatarGradient(user?.user_id || user?.email || "mentorpro") }),
+    [user?.email, user?.user_id],
+  );
 
   useEffect(() => {
-    const fetchProfile = async () => {
-      const token = window.localStorage.getItem("token");
-      const cachedUser = readCachedUser();
+    queueMicrotask(() => {
+      setFullName(user?.full_name ?? user?.username ?? "");
+      setCategory(user?.category ?? "");
+      setAvatarPreview(null);
+    });
+  }, [user]);
 
+  useEffect(() => {
+    const loadProfile = async () => {
       if (!token) {
-        setUser(cachedUser);
-        setFullName(cachedUser?.full_name ?? "");
-        setCategory(cachedUser?.category ?? "");
         setIsLoading(false);
         return;
       }
 
       try {
-        const response = await fetch(`${apiBaseUrl}/user/profile`, {
-          headers: { Authorization: `Bearer ${token}` },
-        });
-
-        if (!response.ok) throw new Error("Không thể tải hồ sơ người dùng.");
-        const data = (await response.json()) as UserProfile;
-        setUser(data);
-        setFullName(data.full_name ?? data.username ?? "");
-        setCategory(data.category ?? "");
-        window.localStorage.setItem("mentorpro-user", JSON.stringify(data));
+        await refreshUser();
       } catch (error) {
         setStatus({ type: "error", message: error instanceof Error ? error.message : "Không thể tải hồ sơ." });
-        setUser(cachedUser);
-        setFullName(cachedUser?.full_name ?? "");
-        setCategory(cachedUser?.category ?? "");
       } finally {
         setIsLoading(false);
       }
     };
 
-    void fetchProfile();
-  }, [apiBaseUrl]);
+    void loadProfile();
+  }, [refreshUser, token]);
+
+  useEffect(() => {
+    return () => {
+      if (avatarPreview?.startsWith("blob:")) URL.revokeObjectURL(avatarPreview);
+    };
+  }, [avatarPreview]);
+
+  const handleAvatarChange = (event: ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+
+    if (!file.type.startsWith("image/")) {
+      setStatus({ type: "error", message: "Vui lòng chọn một file ảnh." });
+      return;
+    }
+
+    setAvatarPreview((current) => {
+      if (current?.startsWith("blob:")) URL.revokeObjectURL(current);
+      return URL.createObjectURL(file);
+    });
+    setStatus(null);
+    event.target.value = "";
+  };
 
   const handleSave = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
-    const token = window.localStorage.getItem("token");
 
     if (!token) {
-      setStatus({ type: "error", message: "Bạn cần đăng nhập để cập nhật hồ sơ." });
+      setStatus({ type: "error", message: "Bạn cần đăng nhập bằng tài khoản thật để cập nhật hồ sơ." });
       return;
     }
+
+    const nextUser = {
+      ...user,
+      full_name: fullName.trim(),
+      category: category.trim(),
+      avatar_url: avatarUrl,
+      preferences: { ...(user?.preferences ?? {}), avatar_url: avatarUrl },
+    };
 
     setIsSaving(true);
     setStatus(null);
 
     try {
-      const response = await fetch(`${apiBaseUrl}/user/profile`, {
-        method: "PUT",
-        headers: {
-          Authorization: `Bearer ${token}`,
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          full_name: fullName.trim(),
-          category: category.trim(),
-          preferences: {},
-        }),
+      await updateProfileRequest(token, {
+        full_name: nextUser.full_name,
+        category: nextUser.category,
+        preferences: nextUser.preferences,
       });
-
-      if (!response.ok) throw new Error("Không thể cập nhật hồ sơ.");
-      const nextUser = { ...user, full_name: fullName.trim(), category: category.trim() };
-      setUser(nextUser);
-      window.localStorage.setItem("mentorpro-user", JSON.stringify(nextUser));
+      updateUser(nextUser);
+      setAvatarPreview(null);
       setStatus({ type: "success", message: "Đã lưu thay đổi hồ sơ." });
     } catch (error) {
       setStatus({ type: "error", message: error instanceof Error ? error.message : "Không thể cập nhật hồ sơ." });
@@ -102,10 +113,8 @@ export default function ProfilePage() {
   };
 
   const handleLogout = () => {
-    window.localStorage.removeItem("token");
-    window.localStorage.removeItem("metor-demo-login");
-    window.localStorage.removeItem("mentorpro-user");
-    router.push("/login");
+    logout();
+    router.push("/");
   };
 
   return (
@@ -122,10 +131,29 @@ export default function ProfilePage() {
 
       <section className="profile-shell">
         <aside className="profile-summary">
-          <div className="profile-avatar">{getInitials(user?.full_name || user?.username || user?.email || "M")}</div>
+          <input
+            ref={avatarInputRef}
+            type="file"
+            accept="image/*"
+            className="sr-only"
+            onChange={handleAvatarChange}
+          />
+          <button
+            type="button"
+            className="profile-avatar profile-avatar-button"
+            style={avatarStyle}
+            onClick={() => avatarInputRef.current?.click()}
+            aria-label="Đổi avatar"
+          >
+            {avatarUrl ? (
+              <Image src={avatarUrl} alt="Avatar người dùng" width={88} height={88} unoptimized />
+            ) : (
+              getInitials(user?.full_name || user?.username || user?.email || "M")
+            )}
+          </button>
           <h1>{user?.full_name || user?.username || "Tài khoản MentorPro"}</h1>
           <p>{user?.email || "Bạn chưa đăng nhập"}</p>
-          <span>{user?.category || "General"}</span>
+          <span>{user?.category || (token ? "General" : "Guest")}</span>
         </aside>
 
         <section className="profile-panel">
@@ -160,7 +188,7 @@ export default function ProfilePage() {
 
               <div className="profile-actions">
                 <Link href="/login">Đăng nhập tài khoản khác</Link>
-                <button type="submit" disabled={isSaving}>
+                <button type="submit" disabled={isSaving || !token}>
                   {isSaving ? "Đang lưu..." : "Lưu thay đổi"}
                 </button>
               </div>
@@ -172,15 +200,6 @@ export default function ProfilePage() {
   );
 }
 
-function readCachedUser(): UserProfile | null {
-  try {
-    const value = window.localStorage.getItem("mentorpro-user");
-    return value ? (JSON.parse(value) as UserProfile) : null;
-  } catch {
-    return null;
-  }
-}
-
 function getInitials(value: string) {
   return value
     .split(/\s|@/)
@@ -188,4 +207,17 @@ function getInitials(value: string) {
     .slice(0, 2)
     .map((part) => part[0]?.toUpperCase())
     .join("");
+}
+
+function getAvatarGradient(value: string) {
+  const palettes = [
+    ["#061d3b", "#1683f5"],
+    ["#5f22f2", "#38bdf8"],
+    ["#047857", "#8fb0ff"],
+    ["#be123c", "#f59e0b"],
+    ["#172033", "#6d35dd"],
+  ];
+  const total = [...value].reduce((sum, char) => sum + char.charCodeAt(0), 0);
+  const [first, second] = palettes[total % palettes.length];
+  return `linear-gradient(135deg, ${first}, ${second})`;
 }

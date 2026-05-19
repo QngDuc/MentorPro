@@ -3,6 +3,8 @@ import { ReactNode } from "react";
 import Script from "next/script";
 import "./globals.css";
 
+import { AuthProvider } from "@/context/AuthContext";
+
 export const metadata: Metadata = {
   title: "MentorPro Nexus Intelligence",
   description: "Strategic career intelligence workspace",
@@ -16,7 +18,10 @@ export default function RootLayout({ children }: { children: ReactNode }) {
     <html lang="vi">
       <head />
       <body>
-        {children}
+        <AuthProvider>
+          {children}
+        </AuthProvider>
+
         <Script
           strategy="afterInteractive"
           dangerouslySetInnerHTML={{

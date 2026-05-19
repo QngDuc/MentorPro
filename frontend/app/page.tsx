@@ -6,6 +6,7 @@ import { useRouter } from "next/navigation";
 import { MetorLogo } from "@/components/metor/MetorLogo";
 
 export default function LandingPage() {
+  console.log(process.env.NEXT_PUBLIC_SUPABASE_URL);
   const router = useRouter();
   const mainRef = useRef<HTMLElement | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);

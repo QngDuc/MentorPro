@@ -1,12 +1,6 @@
 import type { NextConfig } from "next";
 
-
-
-const nextConfig: NextConfig & {
-  eslint?: {
-    ignoreDuringBuilds?: boolean;
-  };
-} = {
+const nextConfig: NextConfig = {
   typescript: {
     ignoreBuildErrors: true,
   },
@@ -14,7 +8,5 @@ const nextConfig: NextConfig & {
     ignoreDuringBuilds: true,
   },
 };
-module.exports = {
-  allowedDevOrigins: ['192.168.1.10'],
-}
+
 export default nextConfig;

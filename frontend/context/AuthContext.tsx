@@ -1,0 +1,122 @@
+"use client";
+
+import { createContext, ReactNode, useCallback, useContext, useEffect, useMemo, useState } from "react";
+import { getProfileRequest, loginRequest, UserProfile } from "@/lib/api";
+
+type AuthContextValue = {
+  user: UserProfile | null;
+  token: string | null;
+  isAuthenticated: boolean;
+  isReady: boolean;
+  login: (email: string, password: string) => Promise<void>;
+  logout: () => void;
+  refreshUser: () => Promise<void>;
+  updateUser: (profile: UserProfile) => void;
+  setSession: (session: { token?: string | null; user: UserProfile; demo?: boolean }) => void;
+};
+
+const AuthContext = createContext<AuthContextValue | null>(null);
+
+export function AuthProvider({ children }: { children: ReactNode }) {
+  const [user, setUser] = useState<UserProfile | null>(null);
+  const [token, setToken] = useState<string | null>(null);
+  const [isDemoSession, setIsDemoSession] = useState(false);
+  const [isReady, setIsReady] = useState(false);
+
+  useEffect(() => {
+    queueMicrotask(() => {
+      const storedToken = window.localStorage.getItem("token");
+      const storedUser = readStoredUser();
+      const demo = window.localStorage.getItem("metor-demo-login") === "true";
+
+      setToken(storedToken);
+      setUser(storedUser);
+      setIsDemoSession(demo);
+      setIsReady(true);
+    });
+  }, []);
+
+  const persistSession = useCallback((session: { token?: string | null; user: UserProfile; demo?: boolean }) => {
+    const nextToken = session.token ?? null;
+    setToken(nextToken);
+    setUser(session.user);
+    setIsDemoSession(Boolean(session.demo));
+
+    if (nextToken) window.localStorage.setItem("token", nextToken);
+    else window.localStorage.removeItem("token");
+
+    window.localStorage.setItem("mentorpro-user", JSON.stringify(session.user));
+    window.localStorage.setItem("metor-demo-login", session.demo ? "true" : "false");
+  }, []);
+
+  const login = useCallback(async (email: string, password: string) => {
+    const data = await loginRequest(email, password);
+    persistSession({
+      token: data.access_token ?? null,
+      user: {
+        email,
+        full_name: data.full_name ?? "",
+        user_id: data.user_id ?? "",
+      },
+    });
+  }, [persistSession]);
+
+  const logout = useCallback(() => {
+    setToken(null);
+    setUser(null);
+    setIsDemoSession(false);
+    window.localStorage.removeItem("token");
+    window.localStorage.removeItem("metor-demo-login");
+    window.localStorage.removeItem("mentorpro-user");
+  }, []);
+
+  const refreshUser = useCallback(async () => {
+    if (!token) return;
+    const profile = await getProfileRequest(token);
+    setUser((current) => {
+      const nextUser = { ...current, ...profile };
+      window.localStorage.setItem("mentorpro-user", JSON.stringify(nextUser));
+      return nextUser;
+    });
+  }, [token]);
+
+  const updateUser = useCallback((profile: UserProfile) => {
+    setUser((current) => {
+      const nextUser = { ...current, ...profile };
+      window.localStorage.setItem("mentorpro-user", JSON.stringify(nextUser));
+      return nextUser;
+    });
+  }, []);
+
+  const value = useMemo<AuthContextValue>(
+    () => ({
+      user,
+      token,
+      isAuthenticated: Boolean(token || isDemoSession),
+      isReady,
+      login,
+      logout,
+      refreshUser,
+      updateUser,
+      setSession: persistSession,
+    }),
+    [isDemoSession, isReady, login, logout, persistSession, refreshUser, token, updateUser, user],
+  );
+
+  return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
+}
+
+export function useAuth() {
+  const context = useContext(AuthContext);
+  if (!context) throw new Error("useAuth must be used inside AuthProvider");
+  return context;
+}
+
+function readStoredUser(): UserProfile | null {
+  try {
+    const value = window.localStorage.getItem("mentorpro-user");
+    return value ? (JSON.parse(value) as UserProfile) : null;
+  } catch {
+    return null;
+  }
+}

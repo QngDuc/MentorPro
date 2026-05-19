@@ -1,192 +1,99 @@
 "use client";
 
+import { ChangeEvent, useEffect, useRef, useState } from "react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useState } from "react";
 import { MetorLogo } from "@/components/metor/MetorLogo";
 
-type AuthMode = "login" | "signup" | "forgot";
-type PasswordFieldKey = "login" | "signup" | "confirm";
-
-export default function LoginPage() {
+export default function LandingPage() {
   const router = useRouter();
-  const [authMode, setAuthMode] = useState<AuthMode>("login");
-  const [visiblePasswords, setVisiblePasswords] = useState<Record<PasswordFieldKey, boolean>>({
-    login: false,
-    signup: false,
-    confirm: false,
-  });
+  const mainRef = useRef<HTMLElement | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const [backgroundUrl, setBackgroundUrl] = useState<string | null>(null);
 
-  const handleLogin = () => {
-    window.localStorage.setItem("metor-demo-login", "true");
-    router.push("/chat");
+  useEffect(() => {
+    return () => {
+      if (backgroundUrl) URL.revokeObjectURL(backgroundUrl);
+    };
+  }, [backgroundUrl]);
+
+  useEffect(() => {
+    if (!mainRef.current) return;
+
+    if (backgroundUrl) {
+      mainRef.current.style.setProperty(
+        "--landing-background-url",
+        `linear-gradient(rgba(247,250,255,.35), rgba(247,250,255,.35)), url(${backgroundUrl})`
+      );
+    } else {
+      mainRef.current.style.removeProperty("--landing-background-url");
+    }
+  }, [backgroundUrl]);
+
+  const handleBackgroundChange = (event: ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file || !file.type.startsWith("image/")) return;
+
+    setBackgroundUrl((current) => {
+      if (current) URL.revokeObjectURL(current);
+      return URL.createObjectURL(file);
+    });
+    event.target.value = "";
   };
 
-  const togglePassword = (field: PasswordFieldKey) => {
-    setVisiblePasswords((current) => ({ ...current, [field]: !current[field] }));
+  const goToLogin = () => {
+    router.push("/login");
+  };
+
+  const handleOAuthLogin = (provider: string) => {
+    alert(`${provider} login would redirect to OAuth provider`);
   };
 
   return (
-    <main className="login-page">
-      <section className={`login-card auth-card-${authMode}`} aria-label={`MentorPro ${authMode}`}>
+    <main
+      ref={mainRef}
+      className={`landing-page${backgroundUrl ? " landing-page--custom-background" : ""}`}
+    >
+      <header className="landing-header">
         <MetorLogo />
+        <div className="landing-actions">
+          <input placeholder="file-input"
+            ref={fileInputRef}
+            type="file"
+            accept="image/*"
+            className="sr-only"
+            onChange={handleBackgroundChange}
+          />
+          <button type="button" className="landing-secondary-button" onClick={() => fileInputRef.current?.click()}>
+            Đổi nền
+          </button>
+          <button type="button" className="landing-primary-button" onClick={goToLogin}>
+            Tham gia ngay
+          </button>
+        </div>
+      </header>
 
-        {authMode === "login" && (
-          <div className="login-form">
-            <TextField placeholder="Số điện thoại / địa chỉ email" ariaLabel="Số điện thoại hoặc email" />
-
-            <PasswordField
-              visible={visiblePasswords.login}
-              placeholder="Mật khẩu"
-              ariaLabel="Mật khẩu"
-              onToggle={() => togglePassword("login")}
-            />
-
-            <p className="terms-copy">
-              Khi đăng ký hoặc đăng nhập, bạn đồng ý với <a href="#">Điều khoản sử dụng</a> và{" "}
-              <a href="#">Chính sách bảo mật</a> của MentorPro.
-            </p>
-
-            <div className="login-links">
-              <button type="button" onClick={() => setAuthMode("forgot")}>
-                Quên mật khẩu?
-              </button>
-              <button type="button" onClick={() => setAuthMode("signup")}>
-                Đăng ký
-              </button>
-            </div>
-
-            <button type="button" className="login-button" onClick={handleLogin}>
-              Đăng nhập
-            </button>
-
-            <div className="social-divider">
-              <span />
-              <button type="button" aria-label="Đăng nhập với Google">
-                G
-              </button>
-              <button type="button" aria-label="Đăng nhập với Apple">
-                A
-              </button>
-              <span />
-            </div>
-          </div>
-        )}
-
-        {authMode === "signup" && (
-          <div className="login-form auth-alt-form">
-            <p className="auth-copy">
-              Chỉ hỗ trợ đăng ký bằng email tại khu vực của bạn. Chỉ cần một tài khoản MentorPro để truy cập mọi
-              dịch vụ của MentorPro.
-            </p>
-
-            <TextField placeholder="Địa chỉ email" ariaLabel="Địa chỉ email" />
-
-            <PasswordField
-              visible={visiblePasswords.signup}
-              placeholder="Mật khẩu"
-              ariaLabel="Mật khẩu"
-              onToggle={() => togglePassword("signup")}
-            />
-
-            <PasswordField
-              visible={visiblePasswords.confirm}
-              placeholder="Xác nhận mật khẩu"
-              ariaLabel="Xác nhận mật khẩu"
-              onToggle={() => togglePassword("confirm")}
-            />
-
-            <CodeField />
-
-            <p className="terms-copy auth-centered-copy">
-              Khi đăng ký, bạn đồng ý với <a href="#">Điều khoản sử dụng</a> và{" "}
-              <a href="#">Chính sách bảo mật</a> của MentorPro.
-            </p>
-
-            <button type="button" className="login-button">
-              Đăng ký
-            </button>
-
-            <button type="button" className="auth-text-button" onClick={() => setAuthMode("login")}>
-              Đăng nhập
-            </button>
-          </div>
-        )}
-
-        {authMode === "forgot" && (
-          <div className="login-form auth-alt-form forgot-form">
-            <div className="auth-heading">
-              <h1>Đặt lại mật khẩu</h1>
-              <p>Nhập số điện thoại hoặc địa chỉ email, chúng tôi sẽ gửi mã xác minh để đặt lại mật khẩu.</p>
-            </div>
-
-            <TextField placeholder="Địa chỉ email / số điện thoại" ariaLabel="Email hoặc số điện thoại" />
-            <CodeField />
-
-            <button type="button" className="login-button">
-              Tiếp tục
-            </button>
-
-            <button type="button" className="auth-text-button" onClick={() => setAuthMode("login")}>
-              Quay lại đăng nhập
-            </button>
-          </div>
-        )}
+      <section className="landing-hero" aria-label="MentorPro">
+        <span className="landing-badge">Mới · MentorPro-V1 Research Preview hiện đã khả dụng. Tìm hiểu thêm</span>
+        <h1>MentorPro</h1>
+        <p>Phân tích toàn diện, giải pháp khác biệt</p>
       </section>
 
+      <section className="landing-cards" aria-label="Lối vào MentorPro">
+        <Link href="/login" className="landing-card">
+          <span className="landing-card-icon">□</span>
+          <strong>Bắt đầu cuộc hội thoại</strong>
+          <p>Trò chuyện với các chuyên gia MentorPro và trải nghiệm tương lai hợp tác qua giao diện đối thoại tiên tiến.</p>
+          <span>Vào bảng điều khiển →</span>
+        </Link>
+
+        <article className="landing-card">
+          <span className="landing-card-icon">◇</span>
+          <strong>Nền tảng AI Mở</strong>
+          <p>Tích hợp các mô hình AI mới nhất của MentorPro vào quy trình làm việc của bạn với các công cụ API dành cho nhà phát triển.</p>
+          <span>Xem tài liệu →</span>
+        </article>
+      </section>
     </main>
-  );
-}
-
-function TextField({ placeholder, ariaLabel }: { placeholder: string; ariaLabel: string }) {
-  return (
-    <label className="login-input-field">
-      <input type="text" placeholder={placeholder} aria-label={ariaLabel} />
-    </label>
-  );
-}
-
-function PasswordField({
-  visible,
-  placeholder,
-  ariaLabel,
-  onToggle,
-}: {
-  visible: boolean;
-  placeholder: string;
-  ariaLabel: string;
-  onToggle: () => void;
-}) {
-  return (
-    <label className="password-field">
-      <input type={visible ? "text" : "password"} placeholder={placeholder} aria-label={ariaLabel} />
-      <button type="button" onClick={onToggle} aria-label={visible ? "Ẩn mật khẩu" : "Hiện mật khẩu"}>
-        <EyeIcon />
-      </button>
-    </label>
-  );
-}
-
-function CodeField() {
-  return (
-    <label className="code-field">
-      <input type="text" placeholder="Mã" aria-label="Mã xác minh" />
-      <button type="button">Gửi mã</button>
-    </label>
-  );
-}
-
-function EyeIcon() {
-  return (
-    <svg viewBox="0 0 24 24" aria-hidden="true" className="auth-eye-icon">
-      <path
-        d="M2.5 12s3.5-6 9.5-6 9.5 6 9.5 6-3.5 6-9.5 6-9.5-6-9.5-6Z"
-        fill="none"
-        stroke="currentColor"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-        strokeWidth="2"
-      />
-      <circle cx="12" cy="12" r="3" fill="none" stroke="currentColor" strokeWidth="2" />
-    </svg>
   );
 }

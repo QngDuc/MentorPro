@@ -1,8 +1,11 @@
 "use client";
 
 import Image from "next/image";
+import { useRouter } from "next/navigation";
 import { ClipboardEvent, useEffect, useMemo, useRef, useState } from "react";
 import { MetorLogo } from "@/components/metor/MetorLogo";
+import { useAuth } from "@/context/AuthContext";
+import { ocrRequest } from "@/lib/api";
 
 type ChatMode = "chat" | "sentiment" | "summary" | "ocr";
 
@@ -16,7 +19,9 @@ type ChatMessage = {
   id: string;
   role: "user" | "assistant" | "system";
   content: string;
+  timestamp?: string;
   imageUrl?: string;
+  sentiment?: SentimentResult;
 };
 
 type ChatConversation = {
@@ -24,6 +29,8 @@ type ChatConversation = {
   title: string;
   messages: ChatMessage[];
   updatedAt: number;
+  createdAt?: string;
+  pinnedAt?: string | null;
   pinned?: boolean;
 };
 
@@ -41,40 +48,120 @@ const chatModes: Array<{
   { id: "ocr", label: "Hình ảnh", caption: "Hình ảnh", icon: "image" },
 ];
 
+const CHAT_STORAGE_KEY = "mp_chats";
+const OCR_MAX_FILE_SIZE_BYTES = 5 * 1024 * 1024;
+const OCR_ACCEPTED_TYPES = new Set(["image/jpeg", "image/png", "image/webp"]);
+
 export default function ChatPage() {
+  const router = useRouter();
+  const { token, logout } = useAuth();
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [input, setInput] = useState("");
   const [activeMode, setActiveMode] = useState<ChatMode>("chat");
   const [deepThinking, setDeepThinking] = useState(false);
   const [smartSearch, setSmartSearch] = useState(true);
   const [accountMenuOpen, setAccountMenuOpen] = useState(false);
+  const [searchOpen, setSearchOpen] = useState(false);
+  const [searchQuery, setSearchQuery] = useState("");
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [settingsTab, setSettingsTab] = useState<SettingsTab>("general");
   const [themeMode, setThemeMode] = useState<ThemeMode>("light");
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [history, setHistory] = useState<ChatConversation[]>([]);
   const [activeConversationId, setActiveConversationId] = useState<string | null>(null);
+  const [historyLoaded, setHistoryLoaded] = useState(false);
   const [historyMenuId, setHistoryMenuId] = useState<string | null>(null);
   const [renamingConversationId, setRenamingConversationId] = useState<string | null>(null);
   const [renameValue, setRenameValue] = useState("");
   const [deleteConversationId, setDeleteConversationId] = useState<string | null>(null);
+  const [toastMessage, setToastMessage] = useState("");
+  const [debouncedSearchQuery, setDebouncedSearchQuery] = useState("");
   const [imageFile, setImageFile] = useState<File | null>(null);
   const [imagePreviewUrl, setImagePreviewUrl] = useState<string | null>(null);
+  const [ocrError, setOcrError] = useState("");
+  const [isOcrLoading, setIsOcrLoading] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
 
   const apiBaseUrl = useMemo(
-    () => process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:8000",
+    () =>
+      process.env.NEXT_PUBLIC_API_BASE_URL ??
+      process.env.NEXT_PUBLIC_API_URL ??
+      "http://localhost:8000",
     [],
   );
 
   const hasConversation = messages.length > 0 || isLoading;
-  const currentTitle = getConversationTitle(messages);
+  const activeConversation = history.find((conversation) => conversation.id === activeConversationId);
+  const currentTitle = activeConversation?.title ?? getConversationTitle(messages);
+  const activeModeConfig = chatModes.find((mode) => mode.id === activeMode) ?? chatModes[0];
+  const searchableConversations = useMemo(() => {
+    const currentConversationTitle = getConversationTitle(messages);
+    const currentConversation = currentConversationTitle
+      ? [
+          {
+            id: activeConversationId ?? "current",
+            title: currentConversationTitle,
+            messages,
+            updatedAt: Date.now(),
+          } satisfies ChatConversation,
+        ]
+      : [];
+
+    return sortConversations([
+      ...currentConversation,
+      ...history.filter((conversation) => conversation.id !== activeConversationId),
+    ]);
+  }, [activeConversationId, history, messages]);
+  const searchResults = useMemo(
+    () => searchConversations(searchableConversations, debouncedSearchQuery),
+    [debouncedSearchQuery, searchableConversations],
+  );
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages, isLoading]);
+
+  useEffect(() => {
+    queueMicrotask(() => {
+      const conversations = loadStoredConversations();
+      const sharedConversationId = new URLSearchParams(window.location.search).get("id");
+      const sharedConversation = sharedConversationId
+        ? conversations.find((conversation) => conversation.id === sharedConversationId)
+        : undefined;
+
+      setHistory(conversations);
+      if (sharedConversation) {
+        setMessages(sharedConversation.messages);
+        setActiveConversationId(sharedConversation.id);
+      }
+      setHistoryLoaded(true);
+    });
+  }, []);
+
+  useEffect(() => {
+    if (!historyLoaded) return;
+    window.localStorage.setItem(CHAT_STORAGE_KEY, JSON.stringify(sortConversations(history)));
+  }, [history, historyLoaded]);
+
+  useEffect(() => {
+    if (!historyLoaded || !messages.length) return;
+    queueMicrotask(() => {
+      setHistory((current) => saveMessagesToHistory(current, messages, activeConversationId));
+    });
+  }, [activeConversationId, historyLoaded, messages]);
+
+  useEffect(() => {
+    const timeout = window.setTimeout(() => setDebouncedSearchQuery(searchQuery), 300);
+    return () => window.clearTimeout(timeout);
+  }, [searchQuery]);
+
+  useEffect(() => {
+    if (!toastMessage) return;
+    const timeout = window.setTimeout(() => setToastMessage(""), 2400);
+    return () => window.clearTimeout(timeout);
+  }, [toastMessage]);
 
   useEffect(() => {
     return () => {
@@ -82,14 +169,39 @@ export default function ChatPage() {
     };
   }, [imagePreviewUrl]);
 
-  const attachImage = (file: File) => {
-    if (!file.type.startsWith("image/")) return;
+  const attachImage = async (file: File) => {
+    setOcrError("");
+
+    const validationError = validateOcrFile(file);
+    if (validationError) {
+      setOcrError(validationError);
+      return;
+    }
 
     setImagePreviewUrl((current) => {
       if (current) URL.revokeObjectURL(current);
       return URL.createObjectURL(file);
     });
     setImageFile(file);
+    setActiveMode("ocr");
+    return;
+    setIsOcrLoading(true);
+
+    try {
+      const data = await ocrRequest(file, token);
+      const extractedText = data.text?.trim();
+      if (extractedText) {
+        setInput((current) => [current.trim(), extractedText].filter(Boolean).join("\n\n"));
+        setToastMessage("Đã trích xuất OCR.");
+      } else {
+        setOcrError("Không phát hiện văn bản trong ảnh.");
+      }
+    } catch (error) {
+      setOcrError(String(error));
+    } finally {
+      setImageFile(null);
+      setIsOcrLoading(false);
+    }
   };
 
   const clearImage = (revoke = true) => {
@@ -98,6 +210,8 @@ export default function ChatPage() {
       return null;
     });
     setImageFile(null);
+    setOcrError("");
+    setIsOcrLoading(false);
   };
 
   const copyText = async (text: string) => {
@@ -118,11 +232,14 @@ export default function ChatPage() {
     const title = existingConversation?.title ?? getConversationTitle(messages);
     if (!title) return currentHistory;
 
+    const now = new Date().toISOString();
     const conversation: ChatConversation = {
       id: activeConversationId ?? crypto.randomUUID(),
       title,
       messages,
       updatedAt: Date.now(),
+      createdAt: existingConversation?.createdAt ?? now,
+      pinnedAt: existingConversation?.pinnedAt ?? null,
       pinned: existingConversation?.pinned,
     };
 
@@ -157,6 +274,7 @@ export default function ChatPage() {
         conversation.id === renamingConversationId ? { ...conversation, title } : conversation,
       ),
     );
+    setToastMessage("Đã đổi tên cuộc trò chuyện.");
     setRenamingConversationId(null);
   };
 
@@ -164,15 +282,23 @@ export default function ChatPage() {
     setHistory((current) =>
       sortConversations(
         current.map((conversation) =>
-          conversation.id === conversationId ? { ...conversation, pinned: !conversation.pinned } : conversation,
+          conversation.id === conversationId
+            ? {
+                ...conversation,
+                pinned: !conversation.pinned,
+                pinnedAt: conversation.pinned ? null : new Date().toISOString(),
+              }
+            : conversation,
         ),
       ),
     );
+    setToastMessage("Đã cập nhật ghim.");
     setHistoryMenuId(null);
   };
 
   const shareConversation = async (conversation: ChatConversation) => {
-    await navigator.clipboard?.writeText(conversation.title);
+    await navigator.clipboard?.writeText(`${window.location.origin}/chat?id=${conversation.id}`);
+    setToastMessage("Đã copy link.");
     setHistoryMenuId(null);
   };
 
@@ -191,6 +317,7 @@ export default function ChatPage() {
       clearImage();
       setActiveConversationId(null);
     }
+    setToastMessage("Đã xóa.");
     setDeleteConversationId(null);
   };
 
@@ -206,27 +333,57 @@ export default function ChatPage() {
   };
 
   const handleSend = async (overrideText?: string) => {
-    const text = (overrideText ?? input).trim();
-    if (!text && !imageFile) return;
+    let text = (overrideText ?? input).trim();
+    if ((!text && !imageFile) || isOcrLoading) return;
+
+    if (imageFile) {
+      setIsOcrLoading(true);
+      setOcrError("");
+      try {
+        const data = await ocrRequest(imageFile, token);
+        const extractedText = data.text?.trim();
+        if (!extractedText) {
+          setOcrError("Không phát hiện văn bản trong ảnh.");
+          return;
+        }
+
+        text = [text, extractedText].filter(Boolean).join("\n\n");
+        if (!overrideText) setInput(text);
+      } catch (error) {
+        setOcrError(String(error));
+        return;
+      } finally {
+        setIsOcrLoading(false);
+      }
+    }
 
     const requestId = crypto.randomUUID();
-    const token = window.localStorage.getItem("token");
-    const headers = token ? { Authorization: `Bearer ${token}` } : undefined;
+    const conversationId = activeConversationId ?? crypto.randomUUID();
+    const requestToken = window.localStorage.getItem("token");
+    const headers = requestToken ? { Authorization: `Bearer ${requestToken}` } : undefined;
+    const now = new Date().toISOString();
+    const userContent = text || "Trích xuất nội dung từ ảnh này.";
 
-    setMessages((current) => [
-      ...current,
-      {
-        id: `${requestId}-user`,
-        role: "user",
-        content: text || "Trích xuất nội dung từ ảnh này.",
-        imageUrl: imagePreviewUrl ?? undefined,
-      },
-    ]);
-    setInput("");
+    if (!activeConversationId) setActiveConversationId(conversationId);
+
+    if (!overrideText) {
+      setMessages((current) => [
+        ...current,
+        {
+          id: `${requestId}-user`,
+          role: "user",
+          content: userContent,
+          timestamp: now,
+          imageUrl: imagePreviewUrl ?? undefined,
+        },
+      ]);
+      setInput("");
+    }
     setIsLoading(true);
 
     try {
       const replies: string[] = [];
+      let aiSentiment: SentimentResult | undefined;
 
       if (imageFile) {
         const ocrBody = new FormData();
@@ -243,12 +400,15 @@ export default function ChatPage() {
         }
 
         const ocrData = (await ocrResponse.json()) as { text?: string };
+        const extractedText = ocrData.text?.trim();
+        if (extractedText && !overrideText) setInput(extractedText);
         replies.push(`Kết quả OCR:\n${ocrData.text || "Không phát hiện văn bản trong ảnh."}`);
       }
 
       if (text) {
+        const prompt = buildPrompt(text, activeMode, deepThinking, smartSearch);
         const chatBody = new FormData();
-        chatBody.append("message", text);
+        chatBody.append("message", prompt);
 
         const chatResponse = await fetch(`${apiBaseUrl}/chat`, {
           method: "POST",
@@ -274,6 +434,8 @@ export default function ChatPage() {
           id: `${requestId}-assistant`,
           role: "assistant",
           content: replies.join("\n\n"),
+          timestamp: new Date().toISOString(),
+          sentiment: aiSentiment,
         },
       ]);
       clearImage(false);
@@ -299,6 +461,17 @@ export default function ChatPage() {
     setActiveConversationId(null);
   };
 
+  const selectSearchResult = (conversation: ChatConversation) => {
+    if (conversation.id !== "current") selectConversation(conversation);
+    setSearchOpen(false);
+    setSearchQuery("");
+  };
+
+  const handleLogout = () => {
+    logout();
+    router.push("/login");
+  };
+
   return (
     <main
       className={[
@@ -313,7 +486,17 @@ export default function ChatPage() {
         <div className="chat-sidebar-top">
           <MetorLogo compact={sidebarCollapsed} />
           <div className="sidebar-actions">
-            <button type="button" aria-label="Tìm kiếm" className="sidebar-search-button">
+            <button
+              type="button"
+              aria-label="Tìm kiếm"
+              className="sidebar-search-button"
+              onClick={() => {
+                setSearchOpen(true);
+                setSearchQuery("");
+                setAccountMenuOpen(false);
+                setHistoryMenuId(null);
+              }}
+            >
               <Icon name="search" />
             </button>
             <button
@@ -325,7 +508,7 @@ export default function ChatPage() {
               <Icon name="panel" />
             </button>
           </div>
-        </header>
+        </div>
 
         <button type="button" className="new-chat-button" onClick={handleNewChat}>
           <Icon name="plus" />
@@ -403,7 +586,7 @@ export default function ChatPage() {
         <div className="sidebar-account">
           {accountMenuOpen && (
             <div className="account-menu">
-              <button type="button">
+              <button type="button" onClick={handleLogout}>
                 <Icon name="phone" />
                 Tải ứng dụng di động
               </button>
@@ -452,6 +635,17 @@ export default function ChatPage() {
         />
       )}
 
+      {searchOpen && (
+        <SearchDialog
+          query={searchQuery}
+          results={searchResults}
+          highlightQuery={debouncedSearchQuery}
+          onQueryChange={setSearchQuery}
+          onClose={() => setSearchOpen(false)}
+          onSelect={selectSearchResult}
+        />
+      )}
+
       {deleteConversationId && (
         <div className="delete-chat-overlay" role="dialog" aria-modal="true" aria-label="Xóa cuộc trò chuyện">
           <div className="delete-chat-dialog">
@@ -475,8 +669,8 @@ export default function ChatPage() {
             <div>
               <strong>{currentTitle || "Trò chuyện mới"}</strong>
               <span>
-                <Icon name="sparkles" />
-                Nhanh
+                <Icon name={activeModeConfig.icon} />
+                {activeModeConfig.label}
               </span>
             </div>
             <button type="button" aria-label="Chia sẻ">
@@ -489,7 +683,8 @@ export default function ChatPage() {
           {hasConversation ? (
             <div className="message-list">
               {messages.map((message) => (
-                <article key={message.id} className={`chat-message ${message.role}`}>
+              <article key={message.id} className={`chat-message ${message.role}`}>
+                <div className="message-stack">
                   <div className="message-bubble">
                     {message.imageUrl && (
                       <Image
@@ -501,13 +696,50 @@ export default function ChatPage() {
                       />
                     )}
                     <p>{message.content}</p>
+                    {message.sentiment?.emotion && (
+                      <span className="sentiment-pill">Cảm xúc: {message.sentiment.emotion}</span>
+                    )}
                   </div>
-                </article>
+
+                  <div className="message-actions">
+                    {message.role === "user" ? (
+                      <>
+                        <button type="button" onClick={() => copyText(message.content)} aria-label="Sao chép">
+                          <Icon name="copy" />
+                        </button>
+                        <button type="button" onClick={() => editMessage(message.content)} aria-label="Chỉnh sửa">
+                          <Icon name="edit" />
+                        </button>
+                      </>
+                    ) : (
+                      <>
+                        <button type="button" onClick={() => copyText(message.content)} aria-label="Sao chép">
+                          <Icon name="copy" />
+                        </button>
+                        <button type="button" onClick={regenerateLast} aria-label="Tạo lại">
+                          <Icon name="refresh" />
+                        </button>
+                        <button type="button" aria-label="Like">
+                          <Icon name="thumbUp" />
+                        </button>
+                        <button type="button" aria-label="Dislike">
+                          <Icon name="thumbDown" />
+                        </button>
+                      </>
+                    )}
+                  </div>
+                </div>
+              </article>
               ))}
               {isLoading && (
                 <article className="chat-message assistant">
                   <div className="message-stack">
                     <div className="message-bubble typing-bubble">
+                      <span className="typing-dots" aria-label="MentorPro đang phản hồi">
+                        <span />
+                        <span />
+                        <span />
+                      </span>
                       <p>MentorPro đang suy nghĩ...</p>
                     </div>
                   </div>
@@ -519,7 +751,7 @@ export default function ChatPage() {
             <div className="chat-start">
               <div className="chat-start-title">
                 <MetorLogo compact />
-                <h1>Chế độ Nhanh</h1>
+                <h1>Chế độ {activeModeConfig.label}</h1>
               </div>
               <ModeSwitcher activeMode={activeMode} onModeChange={setActiveMode} />
             </div>
@@ -532,12 +764,15 @@ export default function ChatPage() {
               <Image src={imagePreviewUrl} alt="Ảnh tạm thời" width={54} height={54} unoptimized />
               <span>{imageFile?.name || "Ảnh từ clipboard"}</span>
               <button type="button" onClick={() => clearImage()}>
-                ✕
+                Xóa
               </button>
             </div>
           )}
+          {(isOcrLoading || ocrError) && (
+            <p className="composer-preview-error detached">{isOcrLoading ? "Đang trích xuất OCR..." : ocrError}</p>
+          )}
 
-          <div className="chat-input-box">
+          <div className="metor-composer">
             <textarea
               value={input}
               onChange={(event) => setInput(event.target.value)}
@@ -545,7 +780,7 @@ export default function ChatPage() {
               onKeyDown={(event) => {
                 if (event.key === "Enter" && !event.shiftKey) {
                   event.preventDefault();
-                  handleSend();
+                  void handleSend();
                 }
               }}
               placeholder="Nhắn tin cho MentorPro"
@@ -573,7 +808,7 @@ export default function ChatPage() {
               </div>
 
               <div className="composer-tools">
-                <input
+                <input placeholder="input-files"
                   ref={fileInputRef}
                   type="file"
                   accept="image/*"
@@ -590,7 +825,7 @@ export default function ChatPage() {
                 <button
                   type="button"
                   className="send-chat-button"
-                  disabled={isLoading || (!input.trim() && !imageFile)}
+                  disabled={isLoading || isOcrLoading || (!input.trim() && !imageFile)}
                   onClick={() => void handleSend()}
                   aria-label="Gửi"
                 >
@@ -599,9 +834,69 @@ export default function ChatPage() {
               </div>
             </div>
           </div>
+          <p className="composer-note">Được tạo bởi AI, chỉ để tham khảo</p>
         </div>
       </section>
+      {toastMessage && <div className="chat-toast" role="status">{toastMessage}</div>}
     </main>
+  );
+}
+
+function SearchDialog({
+  query,
+  results,
+  highlightQuery,
+  onQueryChange,
+  onClose,
+  onSelect,
+}: {
+  query: string;
+  results: ChatConversation[];
+  highlightQuery: string;
+  onQueryChange: (query: string) => void;
+  onClose: () => void;
+  onSelect: (conversation: ChatConversation) => void;
+}) {
+  return (
+    <div className="search-overlay" role="dialog" aria-modal="true" aria-label="Tìm kiếm">
+      <div className="search-dialog">
+        <div className="search-input-row">
+          <Icon name="search" />
+          <input
+            value={query}
+            onChange={(event) => onQueryChange(event.target.value)}
+            placeholder="Tìm kiếm"
+            aria-label="Tìm kiếm cuộc trò chuyện"
+            autoFocus
+          />
+          <button type="button" onClick={onClose} aria-label="Đóng tìm kiếm">
+            <Icon name="close" />
+          </button>
+        </div>
+
+        <div className="search-results">
+          {results.length ? (
+            results.map((conversation) => (
+              <button type="button" key={conversation.id} onClick={() => onSelect(conversation)}>
+                <span className="search-result-icon">
+                  <Icon name="chat" />
+                </span>
+                <span className="search-result-body">
+                  <strong>{highlightText(conversation.title, highlightQuery)}</strong>
+                  <span>{highlightText(getConversationPreview(conversation), highlightQuery)}</span>
+                </span>
+                <time>{formatConversationTime(conversation.updatedAt)}</time>
+              </button>
+            ))
+          ) : (
+            <div className="search-empty-state">
+              <Icon name="search" />
+              <span>{query.trim() ? "Không tìm thấy cuộc trò chuyện phù hợp" : "Nhập từ khóa để tìm lịch sử chat"}</span>
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
   );
 }
 
@@ -751,8 +1046,107 @@ function getConversationTitle(messages: ChatMessage[]) {
 function sortConversations(conversations: ChatConversation[]) {
   return [...conversations].sort((first, second) => {
     if (first.pinned !== second.pinned) return first.pinned ? -1 : 1;
+    if (first.pinned && second.pinned) {
+      return new Date(second.pinnedAt ?? 0).getTime() - new Date(first.pinnedAt ?? 0).getTime();
+    }
     return second.updatedAt - first.updatedAt;
   });
+}
+
+function validateOcrFile(file: File) {
+  if (!OCR_ACCEPTED_TYPES.has(file.type)) {
+    return "Chỉ hỗ trợ ảnh JPEG, PNG hoặc WebP.";
+  }
+
+  if (file.size > OCR_MAX_FILE_SIZE_BYTES) {
+    return "Ảnh tối đa 5MB.";
+  }
+
+  return "";
+}
+
+function loadStoredConversations() {
+  try {
+    const value = window.localStorage.getItem(CHAT_STORAGE_KEY);
+    const conversations = value ? (JSON.parse(value) as ChatConversation[]) : [];
+    return sortConversations(
+      conversations.map((conversation) => ({
+        ...conversation,
+        createdAt: conversation.createdAt ?? new Date(conversation.updatedAt || Date.now()).toISOString(),
+        pinnedAt: conversation.pinnedAt ?? null,
+        messages: conversation.messages.map((message) => ({
+          ...message,
+          timestamp: message.timestamp ?? new Date(conversation.updatedAt || Date.now()).toISOString(),
+        })),
+      })),
+    );
+  } catch {
+    return [];
+  }
+}
+
+function saveMessagesToHistory(
+  currentHistory: ChatConversation[],
+  messages: ChatMessage[],
+  activeConversationId: string | null,
+) {
+  const title = getConversationTitle(messages);
+  if (!title) return currentHistory;
+
+  const existingConversation = currentHistory.find((conversation) => conversation.id === activeConversationId);
+  const now = Date.now();
+  const conversation: ChatConversation = {
+    id: activeConversationId ?? existingConversation?.id ?? crypto.randomUUID(),
+    title: existingConversation?.title ?? title,
+    messages,
+    updatedAt: now,
+    createdAt: existingConversation?.createdAt ?? new Date(now).toISOString(),
+    pinned: existingConversation?.pinned,
+    pinnedAt: existingConversation?.pinnedAt ?? null,
+  };
+
+  return sortConversations([conversation, ...currentHistory.filter((item) => item.id !== conversation.id)]);
+}
+
+function searchConversations(conversations: ChatConversation[], query: string) {
+  const normalizedQuery = query.trim().toLowerCase();
+  if (!normalizedQuery) return conversations;
+
+  return conversations.filter((conversation) => {
+    const content = [conversation.title, ...conversation.messages.map((message) => message.content)]
+      .join(" ")
+      .toLowerCase();
+
+    return content.includes(normalizedQuery);
+  });
+}
+
+function highlightText(text: string, query: string) {
+  const normalizedQuery = query.trim();
+  if (!normalizedQuery) return text;
+
+  const index = text.toLowerCase().indexOf(normalizedQuery.toLowerCase());
+  if (index === -1) return text;
+
+  return (
+    <>
+      {text.slice(0, index)}
+      <mark>{text.slice(index, index + normalizedQuery.length)}</mark>
+      {text.slice(index + normalizedQuery.length)}
+    </>
+  );
+}
+
+function getConversationPreview(conversation: ChatConversation) {
+  const preview = conversation.messages.find((message) => message.role !== "system")?.content ?? conversation.title;
+  return preview.length > 92 ? `${preview.slice(0, 89)}...` : preview;
+}
+
+function formatConversationTime(timestamp: number) {
+  return new Intl.DateTimeFormat("vi-VN", {
+    hour: "2-digit",
+    minute: "2-digit",
+  }).format(timestamp);
 }
 
 function ModeSwitcher({
@@ -779,6 +1173,24 @@ function ModeSwitcher({
   );
 }
 
+function buildPrompt(text: string, mode: ChatMode, deepThinking: boolean, smartSearch: boolean) {
+  const modeInstruction: Record<ChatMode, string> = {
+    chat: "Trả lời như trợ lý Gemini thân thiện, rõ ràng và hữu ích.",
+    sentiment: "Phân tích cảm xúc của nội dung, nêu cảm xúc chính, sắc thái và gợi ý phản hồi phù hợp.",
+    summary: "Tóm tắt nội dung thành các ý chính ngắn gọn, dễ hành động.",
+    ocr: "Nếu có văn bản trích xuất từ ảnh, hãy làm sạch, sắp xếp và giải thích nội dung.",
+  };
+
+  const options = [
+    deepThinking ? "Hãy suy luận kỹ hơn trước khi trả lời." : "",
+    smartSearch ? "Ưu tiên câu trả lời có cấu trúc và có thể kiểm chứng." : "",
+  ]
+    .filter(Boolean)
+    .join(" ");
+
+  return `${modeInstruction[mode]} ${options}\n\nYêu cầu của người dùng: ${text}`;
+}
+
 async function readApiError(response: Response, fallback: string) {
   try {
     const data = (await response.json()) as { detail?: string };
@@ -792,6 +1204,7 @@ type IconName =
   | "arrowUp"
   | "brain"
   | "chevronDown"
+  | "chat"
   | "close"
   | "copy"
   | "database"
@@ -856,6 +1269,12 @@ function Icon({ name }: { name: IconName }) {
       {name === "more" && <path d="M6 12h.01M12 12h.01M18 12h.01" {...common} />}
       {name === "close" && <path d="M6 6l12 12M18 6 6 18" {...common} />}
       {name === "chevronDown" && <path d="m6 9 6 6 6-6" {...common} />}
+      {name === "chat" && (
+        <>
+          <path d="M5 5h14a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H9l-5 4v-4H5a2 2 0 0 1-2-2V7a2 2 0 0 1 2-2Z" {...common} />
+          <path d="M8 9h8M8 13h5" {...common} />
+        </>
+      )}
       {name === "phone" && (
         <>
           <rect x="7" y="3" width="10" height="18" rx="2" {...common} />
@@ -949,3 +1368,4 @@ function Icon({ name }: { name: IconName }) {
     </svg>
   );
 }
+

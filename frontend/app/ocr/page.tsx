@@ -1,27 +1,29 @@
 "use client";
-import { useState } from "react";
+import { useState, useMemo } from "react";
 
 export default function OCRPage() {
   const [image, setImage] = useState<File | null>(null);
   const [text, setText] = useState("");
+
+  const apiBaseUrl = useMemo(() => process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:8000", []);
 
   const handleUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     if(e.target.files) setImage(e.target.files[0]);
   };
 
   const handleSubmit = async () => {
-    if(!image) return;
+    if (!image) return;
     const formData = new FormData();
     formData.append("file", image);
 
     const token = localStorage.getItem("token");
-    const res = await fetch("http://localhost:8000/ocr", {
+    const res = await fetch(`${apiBaseUrl}/ocr`, {
       method: "POST",
-      headers: { "Authorization": `Bearer ${token}` },
-      body: formData
+      headers: token ? { Authorization: `Bearer ${token}` } : undefined,
+      body: formData,
     });
-    const data = await res.json();
-    setText(data.text);
+    const data = (await res.json()) as { text?: string; detail?: string };
+    setText(data.text ?? data.detail ?? "");
   };
 
   return (

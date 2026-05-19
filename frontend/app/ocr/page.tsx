@@ -12,18 +12,18 @@ export default function OCRPage() {
   };
 
   const handleSubmit = async () => {
-    if(!image) return;
+    if (!image) return;
     const formData = new FormData();
     formData.append("file", image);
 
     const token = localStorage.getItem("token");
     const res = await fetch(`${apiBaseUrl}/ocr`, {
       method: "POST",
-      headers: { "Authorization": `Bearer ${token}` },
-      body: formData
+      headers: token ? { Authorization: `Bearer ${token}` } : undefined,
+      body: formData,
     });
-    const data = await res.json();
-    setText(data.text);
+    const data = (await res.json()) as { text?: string; detail?: string };
+    setText(data.text ?? data.detail ?? "");
   };
 
   return (

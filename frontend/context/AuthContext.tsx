@@ -190,12 +190,12 @@ export function AuthProvider({
   // ===== GOOGLE LOGIN =====
   const signInWithGoogle = useCallback(
     async () => {
+      // Use the current origin so the redirect works in dev and production
+      const redirectTo = typeof window !== "undefined" ? `${window.location.origin}/chat` : undefined;
+
       await supabase.auth.signInWithOAuth({
         provider: "google",
-        options: {
-          redirectTo:
-            "http://localhost:3000/chat",
-        },
+        options: redirectTo ? { redirectTo } : undefined,
       });
     },
     []

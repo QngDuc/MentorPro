@@ -9,7 +9,6 @@ import {
   useMemo,
   useState,
 } from "react";
-import { useRouter } from "next/navigation";
 
 import {
   getProfileRequest,
@@ -53,7 +52,6 @@ export function AuthProvider({
 }: {
   children: ReactNode;
 }) {
-  const router = useRouter();
   const [user, setUser] =
     useState<UserProfile | null>(null);
 
@@ -125,14 +123,6 @@ export function AuthProvider({
               user_id: supabaseUser.id,
             },
           });
-          // If user just signed in, navigate to chat
-          try {
-            if (typeof window !== "undefined") {
-              router.push("/chat");
-            }
-          } catch {
-            // ignore routing errors during SSR/build
-          }
         }
       }
     );
@@ -200,8 +190,9 @@ export function AuthProvider({
   // ===== GOOGLE LOGIN =====
   const signInWithGoogle = useCallback(
     async () => {
-      // Use the current origin so the redirect works in dev and production
-      const redirectTo = typeof window !== "undefined" ? `${window.location.origin}/chat` : undefined;
+      // Redirect to a callback page that will parse the hash and finish auth
+      const redirectTo =
+        typeof window !== "undefined" ? `${window.location.origin}/auth/callback` : undefined;
 
       await supabase.auth.signInWithOAuth({
         provider: "google",

@@ -71,6 +71,35 @@ export default function ChatPage() {
   // LOAD CHAT FROM SUPABASE
   // =========================
 
+  // Handle OAuth fragment fallback (in case redirect returned hash to /chat)
+  useEffect(() => {
+    async function handleFragment() {
+      if (typeof window === "undefined") return;
+
+      const hash = window.location.hash;
+      if (!hash || !hash.includes("access_token")) return;
+
+      const params = new URLSearchParams(hash.slice(1));
+      const access_token = params.get("access_token");
+      const refresh_token = params.get("refresh_token");
+
+      if (access_token) {
+        try {
+          await supabase.auth.setSession({
+            access_token: access_token,
+            refresh_token: refresh_token || undefined,
+          } as any);
+        } catch (e) {
+          console.error("Failed to set Supabase session from fragment", e);
+        }
+
+        history.replaceState(null, "", window.location.pathname + window.location.search);
+      }
+    }
+
+    void handleFragment();
+  }, []);
+
   useEffect(() => {
     queueMicrotask(async () => {
       const user = JSON.parse(

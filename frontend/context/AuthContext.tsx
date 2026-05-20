@@ -9,6 +9,7 @@ import {
   useMemo,
   useState,
 } from "react";
+import { useRouter } from "next/navigation";
 
 import {
   getProfileRequest,
@@ -52,6 +53,7 @@ export function AuthProvider({
 }: {
   children: ReactNode;
 }) {
+  const router = useRouter();
   const [user, setUser] =
     useState<UserProfile | null>(null);
 
@@ -123,6 +125,14 @@ export function AuthProvider({
               user_id: supabaseUser.id,
             },
           });
+          // If user just signed in, navigate to chat
+          try {
+            if (typeof window !== "undefined") {
+              router.push("/chat");
+            }
+          } catch {
+            // ignore routing errors during SSR/build
+          }
         }
       }
     );

@@ -1,4 +1,3 @@
-
 # =============================
 # MentorPro Backend - main.py
 # API tư vấn AI, quản lý người dùng, chat, OCR
@@ -24,10 +23,8 @@ import hashlib
 
 
 # --- CẤU HÌNH MÔI TRƯỜNG ---
-# Tải biến môi trường từ file .env (ở thư mục cha)
-env_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), ".env")
-print(f"Looking for .env at: {env_path}")
-load_dotenv(env_path)
+# Tải biến môi trường từ file .env (thư mục hiện tại hoặc từ host environment)
+load_dotenv()  # Works correctly on all platforms including Render/Railway/etc.
 
 
 # ==== CẤU HÌNH BIẾN MÔI TRƯỜNG & GIỚI HẠN ====
@@ -271,6 +268,32 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
         return response
 
 
+# *** Cấu hình CORS (Cross-Origin Resource Sharing) ***
+# CORS must be registered FIRST so it wraps all other middleware (FastAPI runs middleware in reverse order).
+# Origins are read from the ALLOWED_ORIGINS env var (comma-separated) so you can add new
+# Vercel URLs without changing code. Falls back to a safe default list.
+_extra_origins = [
+    o.strip()
+    for o in os.getenv("ALLOWED_ORIGINS", "").split(",")
+    if o.strip()
+]
+_default_origins = [
+    "http://localhost:3000",        # Local dev
+    "https://mentorpro.com",        # Custom production domain
+    "https://www.mentorpro.com",
+]
+ALLOWED_ORIGINS = list(dict.fromkeys(_default_origins + _extra_origins))  # deduplicated
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=ALLOWED_ORIGINS,
+    allow_origin_regex=r"https://.*\.vercel\.app",  # Covers ALL *.vercel.app preview + prod URLs
+    allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+    allow_headers=["*"],
+    allow_credentials=True,
+)
+
+# Security headers middleware is added AFTER CORS so it runs inside it
 app.add_middleware(SecurityHeadersMiddleware)
 
 # *** Cấu hình Security ***
@@ -295,20 +318,6 @@ async def get_current_user(credentials = Depends(security), request: Request = N
 
     token = credentials.credentials
     return verify_token(token)
-
-# *** Cấu hình CORS (Cross-Origin Resource Sharing) ***
-# Cho phép frontend gọi API từ domain khác
-app.add_middleware(
-    CORSMiddleware,
-    # Chỉ định domain được phép gọi API
-    allow_origins=[
-        "http://localhost:3000",  # Frontend local development
-        "https://mentorpro.com"  # Frontend production
-    ],
-    allow_methods=["GET", "POST", "PUT", "DELETE"],  # HTTP methods được phép
-    allow_headers=["*"],  # Cho phép tất cả headers
-    allow_credentials=True  # Cho phép gửi cookies
-)
 
 @app.get("/")
 def health_check():

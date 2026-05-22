@@ -5,7 +5,7 @@ export default function OCRPage() {
   const [image, setImage] = useState<File | null>(null);
   const [text, setText] = useState("");
 
-  const apiBaseUrl = useMemo(() => process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:8000", []);
+  const apiBaseUrl = useMemo(() => (process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:8000").replace(/\/$/, ""), []);
 
   const handleUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     if(e.target.files) setImage(e.target.files[0]);

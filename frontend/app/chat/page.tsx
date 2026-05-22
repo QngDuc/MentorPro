@@ -60,7 +60,7 @@ export default function ChatPage() {
   const bottomRef = useRef<HTMLDivElement>(null);
 
   const apiBaseUrl = useMemo(
-    () => process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:8000",
+    () => (process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:8000").replace(/\/$/, ""),
     []
   );
 

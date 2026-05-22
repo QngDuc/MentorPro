@@ -90,7 +90,7 @@ export default function ChatPage() {
           console.error("Failed to set Supabase session from fragment", e);
         }
 
-        history.replaceState(null, "", window.location.pathname + window.location.search);
+        window.history.replaceState(null, "", window.location.pathname + window.location.search);
       }
     }
 

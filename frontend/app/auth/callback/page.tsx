@@ -31,6 +31,29 @@ export default function AuthCallbackPage() {
         } catch (e) {
           console.error("Failed to set Supabase session", e);
         }
+        // Exchange Supabase token for backend JWT to avoid 401 on first request
+        try {
+          const apiBase = (process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:8000").replace(/\/$/, "");
+          const resp = await fetch(`${apiBase}/auth/exchange`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ access_token }),
+          });
+
+          if (resp.ok) {
+            const data = await resp.json();
+            try {
+              window.localStorage.setItem("token", data.token ?? "");
+              window.localStorage.setItem("mentorpro-user", JSON.stringify(data.user ?? {}));
+            } catch (e) {
+              // ignore storage errors
+            }
+          } else {
+            console.warn("Token exchange failed during callback", await resp.text());
+          }
+        } catch (e) {
+          console.error("Exchange token error during callback", e);
+        }
       }
 
       // Remove fragment and navigate to chat

@@ -144,24 +144,71 @@ def analyze_sentiment(text: str) -> dict:
     """
     Phân tích cảm xúc văn bản bằng TextBlob
     Trả về dict: polarity, subjectivity, emotion
+    Fallback nếu TextBlob không khả dụng (NLTK data missing)
     """
     try:
+        # Try TextBlob with NLTK data
         blob = TextBlob(text)
         polarity = blob.sentiment.polarity
         subjectivity = blob.sentiment.subjectivity
+        
+        # Classify emotion based on polarity
         if polarity > 0.1:
             emotion = "tích cực"
         elif polarity < -0.1:
             emotion = "tiêu cực"
         else:
             emotion = "trung lập"
+        
         return {
             "polarity": round(polarity, 3),
             "subjectivity": round(subjectivity, 3),
             "emotion": emotion
         }
-    except Exception:
-        return {"emotion": "không xác định"}
+    except LookupError as e:
+        print(f"⚠️  NLTK data missing: {e}. Using fallback sentiment analysis.")
+        # Fallback: simple keyword-based sentiment
+        return analyze_sentiment_fallback(text)
+    except Exception as e:
+        print(f"❌ TextBlob error: {e}. Using fallback sentiment analysis.")
+        return analyze_sentiment_fallback(text)
+
+def analyze_sentiment_fallback(text: str) -> dict:
+    """
+    Fallback sentiment analysis using simple keyword matching
+    Used when TextBlob/NLTK data is not available
+    """
+    try:
+        text_lower = text.lower()
+        
+        positive_keywords = ["tốt", "tuyệt", "yêu", "thích", "đúng", "ưng", "vui", "hạnh phúc", "xuất sắc", "tông", "bình yên", "ok"]
+        negative_keywords = ["xấu", "tệ", "ghét", "không thích", "sai", "tức", "buồn", "khó chịu", "thất bại", "lỗi", "sợ", "đau"]
+        
+        positive_count = sum(1 for kw in positive_keywords if kw in text_lower)
+        negative_count = sum(1 for kw in negative_keywords if kw in text_lower)
+        
+        if positive_count > negative_count:
+            polarity = 0.5
+            emotion = "tích cực"
+        elif negative_count > positive_count:
+            polarity = -0.5
+            emotion = "tiêu cực"
+        else:
+            polarity = 0.0
+            emotion = "trung lập"
+        
+        return {
+            "polarity": polarity,
+            "subjectivity": 0.5,
+            "emotion": emotion,
+            "source": "fallback"
+        }
+    except Exception as e:
+        print(f"❌ Fallback sentiment analysis failed: {e}")
+        return {
+            "emotion": "unknown",
+            "source": "error"
+        }
 
 # *** Tóm tắt Hội thoại ***
 
@@ -319,9 +366,58 @@ async def get_current_user(credentials = Depends(security), request: Request = N
     token = credentials.credentials
     return verify_token(token)
 
+# ===== STARTUP EVENT =====
+@app.on_event("startup")
+async def startup_event():
+    """
+    Log configuration on startup (useful for debugging)
+    """
+    print("\n" + "="*60)
+    print("🚀 MentorPro Backend Startup")
+    print("="*60)
+    print(f"✅ FastAPI version: {app.version}")
+    print(f"✅ GEMINI_API_KEY: {'SET' if GEMINI_API_KEY else '❌ NOT SET'}")
+    print(f"✅ SUPABASE_URL: {SUPABASE_URL[:30]}..." if SUPABASE_URL else "❌ NOT SET")
+    print(f"✅ Supabase client: {'CONNECTED' if supabase else '❌ NOT CONFIGURED'}")
+    print(f"✅ AI Model: {model_to_use}")
+    print(f"✅ CORS Origins: {len(ALLOWED_ORIGINS)} configured")
+    print(f"✅ Rate Limit: {MAX_REQUESTS_PER_MINUTE} requests/minute")
+    print("="*60 + "\n")
+
 @app.get("/")
 def health_check():
-    return {"status": "MentorPro Backend is live!"}
+    """
+    Health check endpoint - return detailed system status
+    """
+    return {
+        "status": "MentorPro Backend is live!",
+        "environment": {
+            "gemini_key_set": bool(GEMINI_API_KEY),
+            "supabase_connected": bool(supabase),
+            "jwt_secret_set": bool(JWT_SECRET_KEY),
+        },
+        "version": "1.0.0"
+    }
+
+@app.get("/health/detailed")
+def detailed_health():
+    """
+    Detailed health check with environment info (useful for debugging on Vercel)
+    """
+    return {
+        "status": "ok",
+        "api": "MentorPro",
+        "version": "1.0.0",
+        "environment": {
+            "GEMINI_API_KEY_SET": bool(GEMINI_API_KEY),
+            "SUPABASE_URL_SET": bool(SUPABASE_URL),
+            "SUPABASE_KEY_SET": bool(SUPABASE_KEY),
+            "supabase_client": "connected" if supabase else "not_configured",
+            "ai_model": model_to_use,
+        },
+        "allowed_origins": ALLOWED_ORIGINS,
+        "timestamp": datetime.utcnow().isoformat()
+    }
 
 
 # =============================
@@ -552,39 +648,77 @@ async def update_profile(profile: UserProfile, current_user: dict = Depends(get_
 async def chat_api(message: str = Form(...), current_user: dict = Depends(get_current_user)):
     """
     Gửi tin nhắn và nhận phản hồi từ AI.
-    - Yêu cầu: JWT token
+    - Yêu cầu: JWT token (hoặc anonymous)
     - Input: message (str, 1-2000 ký tự)
-    - Output: reply (AI response), timestamp, message_id, user_sentiment, ai_sentiment
-    - Status: 200 (OK), 400 (input lỗi), 401 (token lỗi), 429 (rate limit), 500 (server)
+    - Output: ai_response, timestamp, message_id, sentiment
+    - Status: 200 (OK), 400 (input lỗi), 429 (rate limit), 500 (server)
     """
+    import traceback
+    from asyncio import TimeoutError as AsyncTimeoutError
+    
     try:
-        # Lấy user_id từ token
-        user_id = current_user["user_id"]
+        # Lấy user_id từ token (hoặc anonymous ID)
+        user_id = current_user.get("user_id")
+        if not user_id:
+            raise HTTPException(status_code=401, detail="User ID không hợp lệ")
         
         # === BƯỚC 1: VALIDATE INPUT ===
         message = message.strip()  # Xóa khoảng trắng thừa
-        if not message or len(message) > 2000:
-            raise HTTPException(status_code=400, detail="Tin nhắn phải từ 1-2000 ký tự")
+        if not message:
+            raise HTTPException(status_code=400, detail="Tin nhắn không được để trống")
+        if len(message) > 2000:
+            raise HTTPException(status_code=400, detail="Tin nhắn quá dài (tối đa 2000 ký tự)")
+        
+        print(f"📨 Chat request from {user_id}: {message[:50]}...")
         
         # === BƯỚC 2: RATE LIMITING ===
-        # Kiểm tra xem user có vượt quá giới hạn request không
-        check_rate_limit(user_id)
+        try:
+            check_rate_limit(user_id)
+        except HTTPException as e:
+            print(f"⏱️  Rate limit exceeded for {user_id}")
+            raise e
         
         # === BƯỚC 3: PHÂN TÍCH CẢM XÚC TIN NHẮN NGƯỜI DÙNG ===
-        user_sentiment = analyze_sentiment(message)
+        try:
+            user_sentiment = analyze_sentiment(message)
+        except Exception as e:
+            print(f"⚠️  Sentiment analysis error: {e}")
+            user_sentiment = {"emotion": "unknown"}
         
         # === BƯỚC 4: GỬI TIN NHẮN ĐẾN GEMINI AI ===
-        ai_response = model.generate_content(message)
-        reply_text = ai_response.text
+        try:
+            print(f"🤖 Calling Gemini API...")
+            # Use timeout to prevent hanging on Vercel
+            import asyncio
+            # Gemini generate_content is synchronous, so we need to handle it carefully
+            ai_response = model.generate_content(message, timeout=30)
+            
+            if not ai_response or not ai_response.text:
+                print("❌ Gemini returned empty response")
+                reply_text = "Xin lỗi, tôi không thể xử lý yêu cầu của bạn. Vui lòng thử lại."
+            else:
+                reply_text = ai_response.text
+                print(f"✅ Gemini response: {reply_text[:100]}...")
+                
+        except TimeoutError as e:
+            print(f"⏱️  Gemini API timeout: {e}")
+            raise HTTPException(status_code=504, detail="AI service timeout. Vui lòng thử lại.")
+        except Exception as e:
+            print(f"❌ Gemini API error: {e}")
+            traceback.print_exc()
+            raise HTTPException(status_code=502, detail=f"AI service unavailable: {str(e)[:100]}")
         
         # === BƯỚC 5: PHÂN TÍCH CẢM XÚC PHẢN HỒI AI ===
-        ai_sentiment = analyze_sentiment(reply_text)
+        try:
+            ai_sentiment = analyze_sentiment(reply_text)
+        except Exception as e:
+            print(f"⚠️  AI Sentiment analysis error: {e}")
+            ai_sentiment = {"emotion": "unknown"}
         
         # === BƯỚC 6: CHUẨN BỊ DỮ LIỆU LƯU TRỮ ===
         timestamp = datetime.now().isoformat()
         message_id = f"{user_id}_{int(time.time() * 1000)}"
 
-        # === BƯỚC 7: LƯU TIN NHẮN VÀO DATABASE ===
         user_msg = {
             "user_id": user_id,
             "message_id": f"{message_id}_user",
@@ -603,27 +737,30 @@ async def chat_api(message: str = Form(...), current_user: dict = Depends(get_cu
             "created_at": timestamp
         }
         
-        # Try Supabase first, fall back to mock database
-        if supabase:
-            try:
-                supabase.table("messages").insert(user_msg).execute()
-                supabase.table("messages").insert(ai_msg).execute()
-                print(f"✅ Chat messages saved to Supabase: {user_id}")
-            except Exception as e:
-                print(f"⚠️  Supabase error during chat: {e}, using mock database")
+        # === BƯỚC 7: LƯU TIN NHẮN VÀO DATABASE ===
+        try:
+            if supabase:
+                try:
+                    supabase.table("messages").insert(user_msg).execute()
+                    supabase.table("messages").insert(ai_msg).execute()
+                    print(f"✅ Supabase save OK: {user_id}")
+                except Exception as supabase_error:
+                    print(f"⚠️  Supabase save failed: {supabase_error}, using mock DB")
+                    if user_id not in mock_db["messages"]:
+                        mock_db["messages"][user_id] = []
+                    mock_db["messages"][user_id].extend([user_msg, ai_msg])
+            else:
+                # Use mock database
                 if user_id not in mock_db["messages"]:
                     mock_db["messages"][user_id] = []
-                mock_db["messages"][user_id].append(user_msg)
-                mock_db["messages"][user_id].append(ai_msg)
-        else:
-            # Use mock database
-            if user_id not in mock_db["messages"]:
-                mock_db["messages"][user_id] = []
-            mock_db["messages"][user_id].append(user_msg)
-            mock_db["messages"][user_id].append(ai_msg)
-
-        # === BƯỚC 9: TRẢ VỀ PHẢN HỒI CHO CLIENT ===
-        return {
+                mock_db["messages"][user_id].extend([user_msg, ai_msg])
+                print(f"📦 Mock DB save OK: {user_id}")
+        except Exception as db_error:
+            print(f"⚠️  Database error (non-critical): {db_error}")
+            # Don't fail the request if database save fails
+        
+        # === BƯỚC 8: TRẢ VỀ PHẢN HỒI CHO CLIENT ===
+        response = {
             "ai_response": reply_text,
             "timestamp": timestamp,
             "message_id": message_id,
@@ -632,15 +769,19 @@ async def chat_api(message: str = Form(...), current_user: dict = Depends(get_cu
                 "ai_sentiment": ai_sentiment
             }
         }
+        print(f"✅ Chat response sent successfully")
+        return response
+        
     except HTTPException:
+        print(f"HTTP Exception raised")
         raise
     except Exception as e:
-        # Print full traceback to help debugging (will appear in server console/logs)
-        import traceback
-        print("❌ Chat error:", e)
+        print(f"❌ Unexpected chat error: {e}")
         traceback.print_exc()
-        # Keep same user-facing message; server log now contains details
-        raise HTTPException(status_code=500, detail="Oops! Có lỗi xảy ra. Hãy thử lại nhé 😔")
+        raise HTTPException(
+            status_code=500, 
+            detail=f"Server error: {str(e)[:100]}"
+        )
 
 @app.get("/chat-history")
 async def get_chat_history(current_user: dict = Depends(get_current_user)):

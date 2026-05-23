@@ -401,7 +401,18 @@ async def get_current_user(credentials = Depends(security), request: Request = N
         return {"user_id": anon_id}
 
     token = credentials.credentials
-    return verify_token(token)
+    # First try to verify as our backend JWT
+    try:
+        return verify_token(token)
+    except Exception as e:
+        # Do not fail the request — treat unknown/invalid tokens as anonymous
+        print(f"⚠️ Token verification failed: {e}. Treating request as anonymous.")
+        try:
+            client_ip = request.client.host if request and request.client else "unknown"
+        except Exception:
+            client_ip = "unknown"
+        anon_id = f"anon_{hashlib.sha256((client_ip + str(time.time())).encode()).hexdigest()[:12]}"
+        return {"user_id": anon_id}
 
 # ===== STARTUP EVENT =====
 @app.on_event("startup")

@@ -87,17 +87,31 @@ export function AuthProvider({
       if (session?.user) {
         const supabaseUser = session.user;
 
-        persistSession({
-          token: session.access_token,
-          user: {
-            email: supabaseUser.email ?? "",
-            full_name:
-              supabaseUser.user_metadata?.full_name ??
-              supabaseUser.user_metadata?.name ??
-              "",
-            user_id: supabaseUser.id,
-          },
-        });
+        // Exchange Supabase access token for backend JWT
+        try {
+          const apiBase = (process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:8000").replace(/\/$/, "");
+          const resp = await fetch(`${apiBase}/auth/exchange`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ access_token: session.access_token }),
+          });
+
+          if (resp.ok) {
+            const data = await resp.json();
+            persistSession({
+              token: data.token ?? null,
+              user: {
+                email: data.user?.email ?? supabaseUser.email ?? "",
+                full_name: data.user?.full_name ?? supabaseUser.user_metadata?.full_name ?? supabaseUser.user_metadata?.name ?? "",
+                user_id: data.user?.user_id ?? supabaseUser.id,
+              },
+            });
+          } else {
+            console.warn("Token exchange failed, treating as anonymous session", await resp.text());
+          }
+        } catch (e) {
+          console.error("Exchange token error", e);
+        }
       }
 
       setIsReady(true);
@@ -111,18 +125,33 @@ export function AuthProvider({
         if (session?.user) {
           const supabaseUser = session.user;
 
-          persistSession({
-            token: session.access_token,
-            user: {
-              email: supabaseUser.email ?? "",
-              full_name:
-                supabaseUser.user_metadata
-                  ?.full_name ??
-                supabaseUser.user_metadata?.name ??
-                "",
-              user_id: supabaseUser.id,
-            },
-          });
+          // Exchange token on auth change
+          (async () => {
+            try {
+              const apiBase = (process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:8000").replace(/\/$/, "");
+              const resp = await fetch(`${apiBase}/auth/exchange`, {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ access_token: session.access_token }),
+              });
+
+              if (resp.ok) {
+                const data = await resp.json();
+                persistSession({
+                  token: data.token ?? null,
+                  user: {
+                    email: data.user?.email ?? supabaseUser.email ?? "",
+                    full_name: data.user?.full_name ?? supabaseUser.user_metadata?.full_name ?? supabaseUser.user_metadata?.name ?? "",
+                    user_id: data.user?.user_id ?? supabaseUser.id,
+                  },
+                });
+              } else {
+                console.warn("Token exchange failed on auth change", await resp.text());
+              }
+            } catch (e) {
+              console.error("Exchange token error on auth change", e);
+            }
+          })();
         }
       }
     );

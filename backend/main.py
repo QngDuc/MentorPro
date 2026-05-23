@@ -14,6 +14,7 @@ from fastapi.security import HTTPBearer
 from dotenv import load_dotenv
 import jwt
 from pydantic import BaseModel, EmailStr
+import requests
 import google.generativeai as genai
 from PIL import Image  # type: ignore
 from textblob import TextBlob
@@ -594,6 +595,51 @@ async def login(credentials: UserLogin):
     except Exception as e:
         print(f"❌ Login error: {e}")
         raise HTTPException(status_code=500, detail="Lỗi đăng nhập")
+
+
+@app.post("/auth/exchange")
+async def auth_exchange(payload: dict):
+    """
+    Exchange a Supabase access token (OAuth) for a backend JWT.
+    Input JSON: { "access_token": "<supabase_access_token>" }
+    Returns: { "token": "<backend_jwt>", "user": { email, full_name, user_id } }
+    """
+    try:
+        access_token = payload.get("access_token") or payload.get("supabase_access_token")
+        if not access_token:
+            raise HTTPException(status_code=400, detail="Missing access_token")
+
+        if not SUPABASE_URL:
+            raise HTTPException(status_code=500, detail="Supabase URL not configured on server")
+
+        # Query Supabase to validate the provided access token and fetch user info
+        user_resp = requests.get(f"{SUPABASE_URL}/auth/v1/user", headers={"Authorization": f"Bearer {access_token}"}, timeout=10)
+        if user_resp.status_code != 200:
+            print(f"⚠️ Supabase token validation failed: {user_resp.status_code} {user_resp.text}")
+            raise HTTPException(status_code=401, detail="Invalid Supabase access token")
+
+        user_data = user_resp.json()
+        supabase_user_id = user_data.get("id")
+        email = user_data.get("email", "")
+        full_name = (user_data.get("user_metadata") or {}).get("full_name") or (user_data.get("user_metadata") or {}).get("name") or ""
+
+        # Create backend JWT linked to Supabase user id
+        backend_token = create_access_token(supabase_user_id)
+
+        # Optionally, ensure user exists in our DB (skip heavy upsert for now)
+        user_profile = {
+            "user_id": supabase_user_id,
+            "email": email,
+            "full_name": full_name,
+        }
+
+        return {"token": backend_token, "user": user_profile}
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"❌ Exchange error: {e}")
+        raise HTTPException(status_code=500, detail="Could not exchange token")
 
 
 

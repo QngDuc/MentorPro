@@ -256,7 +256,7 @@ export default function LoginPage() {
               </button>
             </div>
 
-            <button type="submit" className="login-button" disabled={isSubmitting}>
+            <button type="submit" className="login-button" disabled={isSubmitting} title="Đăng nhập">
               <ButtonLabel loading={isSubmitting} loadingText="Đang đăng nhập..." label="Đăng nhập" />
             </button>
 
@@ -346,7 +346,7 @@ export default function LoginPage() {
 
             <StatusMessage status={status} />
 
-            <button type="submit" className="login-button" disabled={isSubmitting}>
+            <button type="submit" className="login-button" disabled={isSubmitting} aria-label="Đăng ký">
               <ButtonLabel loading={isSubmitting} loadingText="Đang đăng ký..." label="Đăng ký" />
             </button>
 
@@ -389,7 +389,7 @@ export default function LoginPage() {
 
             <StatusMessage status={status} />
 
-            <button type="submit" className="login-button" disabled={isSubmitting}>
+            <button type="submit" className="login-button" disabled={isSubmitting} title="Tiếp tục">
               <ButtonLabel loading={isSubmitting} loadingText="Đang xử lý..." label="Tiếp tục" />
             </button>
 

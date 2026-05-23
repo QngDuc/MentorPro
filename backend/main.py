@@ -880,11 +880,18 @@ async def chat_api(message: str = Form(...), current_user: dict = Depends(get_cu
         print(f"HTTP Exception raised")
         raise
     except Exception as e:
+        # For debugging: include traceback in response temporarily
         print(f"❌ Unexpected chat error: {e}")
-        traceback.print_exc()
+        tb = traceback.format_exc()
+        print(tb)
+        # WARNING: returning tracebacks to client is temporary for debugging only
         raise HTTPException(
-            status_code=500, 
-            detail=f"Server error: {str(e)[:100]}"
+            status_code=500,
+            detail={
+                "message": "Server error during /chat",
+                "error": str(e),
+                "trace": tb.splitlines()[-20:],
+            },
         )
 
 @app.get("/chat-history")

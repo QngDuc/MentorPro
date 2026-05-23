@@ -245,22 +245,59 @@ def check_rate_limit(user_id: str):
 # *** Cấu hình Gemini AI ***
 genai.configure(api_key=GEMINI_API_KEY)
 
-# List available models (properly consume the generator)
+# Use stable, tested models only
+STABLE_MODELS = [
+    "gemini-1.5-pro",      # Most capable, recommended
+    "gemini-1.5-flash",    # Faster, lower cost
+    "gemini-2.0-flash",    # Latest flash model
+]
+
+# Select model to use (prefer pro for quality)
+model_to_use = "gemini-1.5-pro"
+
+# Try to list available models for debugging
 try:
-    available_models = [model for model in genai.list_models() if "generateContent" in model.supported_generation_methods]
-    print(f"✅ Available generative models: {[m.name for m in available_models]}")
-    # Use the first available model
-    model_to_use = available_models[0].name if available_models else "gemini-1.5-pro"
+    available_models = list(genai.list_models())
+    available_names = [m.name for m in available_models]
+    print(f"✅ Available models: {available_names}")
+    
+    # Check if our preferred model is available
+    for stable_model in STABLE_MODELS:
+        if f"models/{stable_model}" in available_names or f"models/latest/{stable_model}" in available_names:
+            model_to_use = stable_model
+            print(f"✅ Selected model: {model_to_use}")
+            break
 except Exception as e:
-    print(f"⚠️ Could not list models: {e}, using default gemini-1.5-pro")
-    model_to_use = "gemini-1.5-pro"
+    print(f"⚠️ Could not list models: {e}")
+    print(f"✅ Using default model: {model_to_use}")
+
+# Initialize the selected model
+def init_model(model_name: str):
+    """Initialize a Gemini model with system instruction"""
+    try:
+        return genai.GenerativeModel(
+            model_name=model_name,
+            system_instruction="Bạn là MentorPro, một người bạn thân thiết, tâm lý và thông minh. Hãy tư vấn cho người dùng một cách chân thành, sử dụng ngôn ngữ gần gũi như bạn bè."
+        )
+    except Exception as e:
+        print(f"❌ Failed to initialize model {model_name}: {e}")
+        return None
 
 # Khởi tạo Gemini model với system instruction
-model = genai.GenerativeModel(
-    model_name=model_to_use,  # Model nhanh, chi phí thấp
-    # Hướng dẫn cho AI cách hành xử
-    system_instruction="Bạn là MentorPro, một người bạn thân thiết, tâm lý và thông minh. Hãy tư vấn cho người dùng một cách chân thành, sử dụng ngôn ngữ gần gũi như bạn bè."
-)
+model = init_model(model_to_use)
+if not model:
+    # Fallback to backup models
+    for backup_model in STABLE_MODELS:
+        if backup_model != model_to_use:
+            print(f"⚠️ Trying backup model: {backup_model}")
+            model = init_model(backup_model)
+            if model:
+                model_to_use = backup_model
+                print(f"✅ Gemini model initialized with backup: {model_to_use}")
+                break
+    
+    if not model:
+        raise ValueError("❌ Could not initialize any Gemini model")
 
 # *** Cấu hình Supabase (Database) ***
 SUPABASE_URL = os.getenv("SUPABASE_URL", "")
@@ -687,7 +724,7 @@ async def chat_api(message: str = Form(...), current_user: dict = Depends(get_cu
         
         # === BƯỚC 4: GỬI TIN NHẮN ĐẾN GEMINI AI ===
         try:
-            print(f"🤖 Calling Gemini API...")
+            print(f"🤖 Calling Gemini API with model: {model_to_use}")
             # Use timeout to prevent hanging on Vercel
             import asyncio
             # Gemini generate_content is synchronous, so we need to handle it carefully
@@ -700,13 +737,23 @@ async def chat_api(message: str = Form(...), current_user: dict = Depends(get_cu
                 reply_text = ai_response.text
                 print(f"✅ Gemini response: {reply_text[:100]}...")
                 
-        except TimeoutError as e:
-            print(f"⏱️  Gemini API timeout: {e}")
-            raise HTTPException(status_code=504, detail="AI service timeout. Vui lòng thử lại.")
         except Exception as e:
-            print(f"❌ Gemini API error: {e}")
+            error_str = str(e)
+            print(f"❌ Gemini API error: {error_str}")
             traceback.print_exc()
-            raise HTTPException(status_code=502, detail=f"AI service unavailable: {str(e)[:100]}")
+            
+            # Check if it's a model not found error
+            if "404" in error_str or "not found" in error_str.lower() or "not supported" in error_str.lower():
+                print(f"⚠️  Model error detected. Current model: {model_to_use}")
+                # Fallback to a known working response
+                reply_text = "AI service không khả dụng lúc này. Vui lòng thử lại sau."
+                raise HTTPException(status_code=503, detail=f"AI model unavailable. Try again later.")
+            elif "timeout" in error_str.lower() or "deadline" in error_str.lower():
+                print(f"⏱️  Timeout error")
+                raise HTTPException(status_code=504, detail="AI service timeout. Vui lòng thử lại.")
+            else:
+                # Generic error
+                raise HTTPException(status_code=502, detail=f"AI service error: {error_str[:100]}")
         
         # === BƯỚC 5: PHÂN TÍCH CẢM XÚC PHẢN HỒI AI ===
         try:

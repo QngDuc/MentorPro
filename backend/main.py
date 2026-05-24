@@ -30,7 +30,7 @@ load_dotenv()  # Works correctly on all platforms including Render/Railway/etc.
 
 # ==== CẤU HÌNH BIẾN MÔI TRƯỜNG & GIỚI HẠN ====
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")  # Key của Google Gemini AI
-JWT_SECRET_KEY = os.getenv("JWT_SECRET_KEY", "your-secret-key-change-in-production")  # Thay đổi trong production
+JWT_SECRET_KEY = os.getenv("JWT_SECRET", "your-secret-key-change-in-production")  # Thay đổi trong production
 JWT_ALGORITHM = "HS256"  # Thuật toán mã hóa JWT
 JWT_EXPIRATION_HOURS = 24  # Token hết hạn sau 24 giờ
 
@@ -101,6 +101,15 @@ class ChatMessage(BaseModel):
 
 
 
+class TokenExchange(BaseModel):
+    """
+    Model để exchange Supabase token với backend JWT
+    - access_token: Supabase access token từ OAuth
+    """
+    access_token: str
+
+
+
 # --- UTILITY FUNCTIONS (Các hàm hỗ trợ) ---
 
 # *** JWT & Xác thực ***
@@ -123,7 +132,7 @@ def create_access_token(user_id: str) -> str:
         "user_id": user_id,
         "exp": datetime.utcnow() + timedelta(hours=JWT_EXPIRATION_HOURS)
     }
-    return jwt.encode(payload, JWT_SECRET_KEY, algorithm=JWT_ALGORITHM)
+    return jwt.encode(payload, JWT_SECRET, algorithm=JWT_ALGORITHM)
 
 
 
@@ -132,7 +141,7 @@ def verify_token(token: str) -> dict:
     Xác thực JWT token, trả về payload hoặc raise lỗi nếu hết hạn/hỏng
     """
     try:
-        payload = jwt.decode(token, JWT_SECRET_KEY, algorithms=[JWT_ALGORITHM])
+        payload = jwt.decode(token, JWT_SECRET, algorithms=[JWT_ALGORITHM])
         return payload
     except jwt.ExpiredSignatureError:
         raise HTTPException(status_code=401, detail="Token hết hạn")
@@ -443,7 +452,7 @@ def health_check():
         "environment": {
             "gemini_key_set": bool(GEMINI_API_KEY),
             "supabase_connected": bool(supabase),
-            "jwt_secret_set": bool(JWT_SECRET_KEY),
+            "jwt_secret_set": bool(JWT_SECRET),
         },
         "version": "1.0.0"
     }
@@ -598,14 +607,14 @@ async def login(credentials: UserLogin):
 
 
 @app.post("/auth/exchange")
-async def auth_exchange(payload: dict):
+async def auth_exchange(payload: TokenExchange):
     """
     Exchange a Supabase access token (OAuth) for a backend JWT.
     Input JSON: { "access_token": "<supabase_access_token>" }
     Returns: { "token": "<backend_jwt>", "user": { email, full_name, user_id } }
     """
     try:
-        access_token = payload.get("access_token") or payload.get("supabase_access_token")
+        access_token = payload.access_token
         if not access_token:
             raise HTTPException(status_code=400, detail="Missing access_token")
 

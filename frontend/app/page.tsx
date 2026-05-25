@@ -23,7 +23,7 @@ export default function LandingPage() {
     if (backgroundUrl) {
       mainRef.current.style.setProperty(
         "--landing-background-url",
-        `linear-gradient(rgba(247,250,255,.35), rgba(247,250,255,.35)), url(${backgroundUrl})`
+        `linear-gradient(rgba(247,250,255,.18), rgba(247,250,255,.18)), url(${backgroundUrl})`
       );
     } else {
       mainRef.current.style.removeProperty("--landing-background-url");

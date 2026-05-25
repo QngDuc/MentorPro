@@ -11,6 +11,7 @@ export type UserProfile = {
   email?: string;
   full_name?: string;
   avatar_url?: string;
+  auth_provider?: "google" | "email" | "demo";
   category?: string;
   preferences?: Record<string, unknown>;
   created_at?: string;

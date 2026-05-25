@@ -20,14 +20,16 @@ export default function AuthCallbackPage() {
       const params = new URLSearchParams(hash.slice(1));
       const access_token = params.get("access_token");
       const refresh_token = params.get("refresh_token");
+      let oauthUser: { user_metadata?: { avatar_url?: string; picture?: string } } | null = null;
 
       if (access_token) {
         // 1. Thiết lập session nội bộ với Supabase Client
         try {
-          await supabase.auth.setSession({
+          const { data } = await supabase.auth.setSession({
             access_token: access_token,
             refresh_token: refresh_token || undefined,
           } as any);
+          oauthUser = data.user;
         } catch (e) {
           console.error("Failed to set Supabase session", e);
         }
@@ -47,7 +49,11 @@ export default function AuthCallbackPage() {
             try {
               // Ghi chính xác các key dữ liệu đăng nhập cho hệ thống
               window.localStorage.setItem("token", data.token ?? "");
-              window.localStorage.setItem("mentorpro-user", JSON.stringify(data.user ?? {}));
+              window.localStorage.setItem("mentorpro-user", JSON.stringify({
+                ...(data.user ?? {}),
+                avatar_url: oauthUser?.user_metadata?.avatar_url ?? oauthUser?.user_metadata?.picture ?? "",
+                auth_provider: "google",
+              }));
             } catch (e) {
               console.error("Lỗi lưu dữ liệu vào LocalStorage:", e);
             }

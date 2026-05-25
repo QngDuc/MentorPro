@@ -4,10 +4,11 @@ import { FormEvent, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { MetorLogo } from "@/components/metor/MetorLogo";
 import { useAuth } from "@/context/AuthContext";
-import { registerRequest } from "@/lib/api";
+import { supabase } from "@/lib/supabase";
 
 type AuthMode = "login" | "signup" | "forgot";
-type PasswordFieldKey = "login" | "signup" | "confirm";
+type PasswordFieldKey = "login" | "signup" | "confirm" | "reset" | "resetConfirm";
+type ForgotStep = "verify" | "password";
 type AuthStatus = { type: "error" | "success"; message: string } | null;
 type AuthFieldErrors = {
   loginEmail?: string;
@@ -18,6 +19,8 @@ type AuthFieldErrors = {
   verificationCode?: string;
   forgotIdentity?: string;
   forgotCode?: string;
+  resetPassword?: string;
+  resetConfirmPassword?: string;
 };
 
 const MIN_PASSWORD_LENGTH = 8;
@@ -40,6 +43,13 @@ export default function LoginPage() {
   const [verificationCode, setVerificationCode] = useState("");
   const [forgotIdentity, setForgotIdentity] = useState("");
   const [forgotCode, setForgotCode] = useState("");
+  const [forgotStep, setForgotStep] = useState<ForgotStep>("verify");
+  const [resetPassword, setResetPassword] = useState("");
+  const [resetConfirmPassword, setResetConfirmPassword] = useState("");
+  const [signupCodeCooldown, setSignupCodeCooldown] = useState(0);
+  const [forgotCodeCooldown, setForgotCodeCooldown] = useState(0);
+  const [hasRequestedSignupCode, setHasRequestedSignupCode] = useState(false);
+  const [isSendingCode, setIsSendingCode] = useState(false);
   const [status, setStatus] = useState<AuthStatus>(null);
   const [fieldErrors, setFieldErrors] = useState<AuthFieldErrors>({});
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -49,6 +59,8 @@ export default function LoginPage() {
       login: false,
       signup: false,
       confirm: false,
+      reset: false,
+      resetConfirm: false,
     });
     
   useEffect(() => {
@@ -61,11 +73,25 @@ export default function LoginPage() {
     });
   }, []);
 
+  useEffect(() => {
+    if (!signupCodeCooldown && !forgotCodeCooldown) return;
+    const timer = window.setInterval(() => {
+      setSignupCodeCooldown((seconds) => Math.max(0, seconds - 1));
+      setForgotCodeCooldown((seconds) => Math.max(0, seconds - 1));
+    }, 1000);
+    return () => window.clearInterval(timer);
+  }, [forgotCodeCooldown, signupCodeCooldown]);
+
   const switchMode = (mode: AuthMode) => {
     setAuthMode(mode);
     setStatus(null);
     setFieldErrors({});
     setIsSubmitting(false);
+    setIsSendingCode(false);
+    setForgotStep("verify");
+    setResetPassword("");
+    setResetConfirmPassword("");
+    setHasRequestedSignupCode(false);
   };
 
   const togglePassword = (field: PasswordFieldKey) => {
@@ -86,6 +112,8 @@ export default function LoginPage() {
       verificationCode: () => validateCode(verificationCode),
       forgotIdentity: () => validateEmail(forgotIdentity.trim(), "Vui lòng nhập email hợp lệ."),
       forgotCode: () => validateCode(forgotCode),
+      resetPassword: () => validatePassword(resetPassword),
+      resetConfirmPassword: () => validateConfirmPassword(resetPassword, resetConfirmPassword),
     };
 
     const error = validators[field]();
@@ -122,6 +150,76 @@ export default function LoginPage() {
     return !nextErrors.forgotIdentity && !nextErrors.forgotCode;
   };
 
+  const validateResetForm = () => {
+    const nextErrors: AuthFieldErrors = {
+      resetPassword: validatePassword(resetPassword),
+      resetConfirmPassword: validateConfirmPassword(resetPassword, resetConfirmPassword),
+    };
+    setFieldErrors(nextErrors);
+    return !nextErrors.resetPassword && !nextErrors.resetConfirmPassword;
+  };
+
+  const sendVerificationCode = async (purpose: "signup" | "forgot") => {
+    const email = purpose === "signup" ? signupEmail.trim() : forgotIdentity.trim();
+    const field = purpose === "signup" ? "signupEmail" : "forgotIdentity";
+    const error = validateEmail(email, "Vui lòng nhập email hợp lệ trước khi gửi mã.");
+    if (error) {
+      setFieldError(field, error);
+      return;
+    }
+
+    if (purpose === "signup") {
+      const passwordError = validatePassword(signupPassword);
+      const confirmError = validateConfirmPassword(signupPassword, confirmPassword);
+      setFieldErrors((current) => ({
+        ...current,
+        signupPassword: passwordError,
+        confirmPassword: confirmError,
+      }));
+      if (passwordError || confirmError) {
+        setStatus({ type: "error", message: "Nhập mật khẩu hợp lệ trước khi gửi mã đăng ký." });
+        return;
+      }
+    }
+
+    setIsSendingCode(true);
+    setStatus(null);
+    try {
+      let otpError: Error | null = null;
+      if (purpose === "signup" && !hasRequestedSignupCode) {
+        const { data, error } = await supabase.auth.signUp({
+          email,
+          password: signupPassword,
+        });
+        otpError = error;
+        if (!error && data.session) {
+          await supabase.auth.signOut();
+          throw new Error("Supabase đang tắt xác nhận email. Hãy bật Confirm Email để gửi mã đăng ký.");
+        }
+        if (!error && data.user && data.user.identities?.length === 0) {
+          throw new Error("Email này đã được đăng ký. Hãy đăng nhập, dùng quên mật khẩu hoặc thử email mới.");
+        }
+      } else if (purpose === "signup") {
+        const { error } = await supabase.auth.resend({ type: "signup", email });
+        otpError = error;
+      } else {
+        const { error } = await supabase.auth.resetPasswordForEmail(email);
+        otpError = error;
+      }
+      if (otpError) throw otpError;
+      if (purpose === "signup") {
+        setHasRequestedSignupCode(true);
+        setSignupCodeCooldown(60);
+      }
+      else setForgotCodeCooldown(60);
+      setStatus({ type: "success", message: "Đã yêu cầu gửi mã. Vui lòng kiểm tra Hộp thư đến và Thư rác." });
+    } catch (error) {
+      setStatus({ type: "error", message: error instanceof Error ? error.message : "Không thể gửi mã xác minh." });
+    } finally {
+      setIsSendingCode(false);
+    }
+  };
+
   const handleLogin = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     if (!validateLoginForm()) {
@@ -156,7 +254,13 @@ export default function LoginPage() {
     setStatus(null);
 
     try {
-      await registerRequest(email, signupPassword);
+      const { error: verifyError } = await supabase.auth.verifyOtp({
+        email,
+        token: verificationCode.trim(),
+        type: "signup",
+      });
+      if (verifyError) throw verifyError;
+      await supabase.auth.signOut();
       setSignupEmail("");
       setSignupPassword("");
       setConfirmPassword("");
@@ -174,6 +278,33 @@ export default function LoginPage() {
 
   const handleForgot = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
+    if (forgotStep === "password") {
+      if (!validateResetForm()) {
+        setStatus(null);
+        return;
+      }
+
+      setIsSubmitting(true);
+      setStatus(null);
+      try {
+        const { error } = await supabase.auth.updateUser({ password: resetPassword });
+        if (error) throw error;
+        await supabase.auth.signOut();
+        setForgotIdentity("");
+        setForgotCode("");
+        setResetPassword("");
+        setResetConfirmPassword("");
+        setFieldErrors({});
+        setAuthMode("login");
+        setStatus({ type: "success", message: "Mật khẩu đã được đặt lại. Bạn có thể đăng nhập ngay." });
+      } catch (error) {
+        setStatus({ type: "error", message: error instanceof Error ? error.message : "Không thể đặt lại mật khẩu." });
+      } finally {
+        setIsSubmitting(false);
+      }
+      return;
+    }
+
     if (!validateForgotForm()) {
       setStatus(null);
       return;
@@ -182,11 +313,17 @@ export default function LoginPage() {
     setIsSubmitting(true);
     setStatus(null);
     try {
-      await Promise.resolve();
-      setForgotIdentity("");
-      setForgotCode("");
+      const { error } = await supabase.auth.verifyOtp({
+        email: forgotIdentity.trim(),
+        token: forgotCode.trim(),
+        type: "recovery",
+      });
+      if (error) throw error;
+      setForgotStep("password");
       setFieldErrors({});
-      setStatus({ type: "success", message: "Yêu cầu đặt lại mật khẩu đã được ghi nhận." });
+      setStatus({ type: "success", message: "Xác minh thành công. Hãy đặt mật khẩu mới." });
+    } catch (error) {
+      setStatus({ type: "error", message: error instanceof Error ? error.message : "Mã xác minh không hợp lệ." });
     } finally {
       setIsSubmitting(false);
     }
@@ -196,11 +333,12 @@ export default function LoginPage() {
     setSession({
       token: null,
       demo: true,
-      user: {
-        email: "guest@mentorpro.local",
-        full_name: "Khách dùng thử",
-        user_id: "guest",
-      },
+        user: {
+          email: "guest@mentorpro.local",
+          full_name: "Khách dùng thử",
+          user_id: "guest",
+          auth_provider: "demo",
+        },
     });
     router.push("/chat");
   };
@@ -279,15 +417,11 @@ export default function LoginPage() {
 
         {authMode === "signup" && (
           <form className="login-form auth-alt-form" onSubmit={handleSignup} noValidate>
-            <p className="auth-copy">
-              Chỉ hỗ trợ đăng ký bằng email tại khu vực của bạn. Chỉ cần một tài khoản MentorPro để truy cập mọi dịch vụ
-              của MentorPro.
-            </p>
-
             <TextField
               value={signupEmail}
               onChange={(value) => {
                 setSignupEmail(value);
+                setHasRequestedSignupCode(false);
                 if (fieldErrors.signupEmail) setFieldError("signupEmail");
               }}
               onBlur={() => validateField("signupEmail")}
@@ -301,6 +435,7 @@ export default function LoginPage() {
               value={signupPassword}
               onChange={(value) => {
                 setSignupPassword(value);
+                setHasRequestedSignupCode(false);
                 if (fieldErrors.signupPassword) setFieldError("signupPassword");
                 if (fieldErrors.confirmPassword) setFieldError("confirmPassword");
               }}
@@ -317,6 +452,7 @@ export default function LoginPage() {
               value={confirmPassword}
               onChange={(value) => {
                 setConfirmPassword(value);
+                setHasRequestedSignupCode(false);
                 if (fieldErrors.confirmPassword) setFieldError("confirmPassword");
               }}
               onBlur={() => validateField("confirmPassword")}
@@ -335,7 +471,9 @@ export default function LoginPage() {
                 if (fieldErrors.verificationCode) setFieldError("verificationCode");
               }}
               onBlur={() => validateField("verificationCode")}
-              onSend={() => setStatus({ type: "success", message: "Mã xác minh đã được gửi." })}
+              onSend={() => void sendVerificationCode("signup")}
+              disabled={isSendingCode || signupCodeCooldown > 0}
+              sendLabel={signupCodeCooldown > 0 ? `Gửi lại (${signupCodeCooldown}s)` : "Gửi mã"}
               error={fieldErrors.verificationCode}
             />
 
@@ -360,37 +498,74 @@ export default function LoginPage() {
           <form className="login-form auth-alt-form forgot-form" onSubmit={handleForgot} noValidate>
             <div className="auth-heading">
               <h1>Đặt lại mật khẩu</h1>
-              <p>Nhập địa chỉ email, chúng tôi sẽ ghi nhận yêu cầu và gửi mã xác minh để đặt lại mật khẩu.</p>
+              <p>Nhập địa chỉ email, chúng tôi sẽ gửi mã xác minh để đặt lại mật khẩu.</p>
             </div>
 
-            <TextField
-              value={forgotIdentity}
-              onChange={(value) => {
-                setForgotIdentity(value);
-                if (fieldErrors.forgotIdentity) setFieldError("forgotIdentity");
-              }}
-              onBlur={() => validateField("forgotIdentity")}
-              placeholder="Địa chỉ email"
-              ariaLabel="Địa chỉ email"
-              autoComplete="email"
-              error={fieldErrors.forgotIdentity}
-            />
+            {forgotStep === "verify" ? (
+              <>
+                <TextField
+                  value={forgotIdentity}
+                  onChange={(value) => {
+                    setForgotIdentity(value);
+                    if (fieldErrors.forgotIdentity) setFieldError("forgotIdentity");
+                  }}
+                  onBlur={() => validateField("forgotIdentity")}
+                  placeholder="Địa chỉ email"
+                  ariaLabel="Địa chỉ email"
+                  autoComplete="email"
+                  error={fieldErrors.forgotIdentity}
+                />
 
-            <CodeField
-              value={forgotCode}
-              onChange={(value) => {
-                setForgotCode(value);
-                if (fieldErrors.forgotCode) setFieldError("forgotCode");
-              }}
-              onBlur={() => validateField("forgotCode")}
-              onSend={() => setStatus({ type: "success", message: "Mã xác minh đã được gửi." })}
-              error={fieldErrors.forgotCode}
-            />
+                <CodeField
+                  value={forgotCode}
+                  onChange={(value) => {
+                    setForgotCode(value);
+                    if (fieldErrors.forgotCode) setFieldError("forgotCode");
+                  }}
+                  onBlur={() => validateField("forgotCode")}
+                  onSend={() => void sendVerificationCode("forgot")}
+                  disabled={isSendingCode || forgotCodeCooldown > 0}
+                  sendLabel={forgotCodeCooldown > 0 ? `Gửi lại (${forgotCodeCooldown}s)` : "Gửi mã"}
+                  error={fieldErrors.forgotCode}
+                />
+              </>
+            ) : (
+              <>
+                <PasswordField
+                  value={resetPassword}
+                  onChange={(value) => {
+                    setResetPassword(value);
+                    if (fieldErrors.resetPassword) setFieldError("resetPassword");
+                  }}
+                  onBlur={() => validateField("resetPassword")}
+                  visible={visiblePasswords.reset}
+                  placeholder="Mật khẩu mới"
+                  ariaLabel="Mật khẩu mới"
+                  onToggle={() => togglePassword("reset")}
+                  autoComplete="new-password"
+                  error={fieldErrors.resetPassword}
+                />
+                <PasswordField
+                  value={resetConfirmPassword}
+                  onChange={(value) => {
+                    setResetConfirmPassword(value);
+                    if (fieldErrors.resetConfirmPassword) setFieldError("resetConfirmPassword");
+                  }}
+                  onBlur={() => validateField("resetConfirmPassword")}
+                  visible={visiblePasswords.resetConfirm}
+                  placeholder="Xác nhận mật khẩu mới"
+                  ariaLabel="Xác nhận mật khẩu mới"
+                  onToggle={() => togglePassword("resetConfirm")}
+                  autoComplete="new-password"
+                  error={fieldErrors.resetConfirmPassword}
+                />
+              </>
+            )}
 
             <StatusMessage status={status} />
 
             <button type="submit" className="login-button" disabled={isSubmitting} title="Tiếp tục">
-              <ButtonLabel loading={isSubmitting} loadingText="Đang xử lý..." label="Tiếp tục" />
+              <ButtonLabel loading={isSubmitting} loadingText="Đang xử lý..." label={forgotStep === "verify" ? "Tiếp tục" : "Đặt lại mật khẩu"} />
             </button>
 
             <button type="button" className="auth-text-button" onClick={() => switchMode("login")}>
@@ -487,12 +662,16 @@ function CodeField({
   onChange,
   onBlur,
   onSend,
+  sendLabel = "Gửi mã",
+  disabled = false,
   error,
 }: {
   value: string;
   onChange: (value: string) => void;
   onBlur?: () => void;
   onSend: () => void;
+  sendLabel?: string;
+  disabled?: boolean;
   error?: string;
 }) {
   return (
@@ -507,8 +686,8 @@ function CodeField({
           aria-label="Mã xác minh"
           aria-invalid={Boolean(error)}
         />
-        <button type="button" onClick={onSend}>
-          Gửi mã
+        <button type="button" onClick={onSend} disabled={disabled}>
+          {sendLabel}
         </button>
       </label>
       {error ? <p className="auth-field-error">{error}</p> : null}

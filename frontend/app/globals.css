@@ -1282,7 +1282,7 @@ select {
   font-weight: 900;
 }
 
-.sidebar-user span {
+.sidebar-user .sidebar-user-name {
   min-width: 0;
   flex: 1;
   overflow: hidden;
@@ -2333,7 +2333,7 @@ select {
 
 .sidebar-collapsed .sidebar-search-button,
 .sidebar-collapsed .chat-history,
-.sidebar-collapsed .sidebar-user span,
+.sidebar-collapsed .sidebar-user-name,
 .sidebar-collapsed .sidebar-user > .ui-icon {
   display: none;
 }
@@ -3365,6 +3365,10 @@ button.landing-card {
 
 .login-card.auth-card-forgot {
   padding-top: 156px;
+}
+
+.login-card.auth-card-forgot .metor-logo {
+  display: none;
 }
 
 .login-card .metor-logo {
@@ -4484,6 +4488,23 @@ button.landing-card {
   white-space: nowrap;
 }
 
+.code-field button:disabled {
+  color: #9da7b7;
+  cursor: not-allowed;
+}
+
+.auth-card-signup .login-form {
+  gap: 26px;
+}
+
+.auth-card-forgot .forgot-form {
+  gap: 26px;
+}
+
+.auth-card-forgot .login-button {
+  margin-top: 10px;
+}
+
 .chat-history-item.active,
 .chat-history-item:hover {
   background: #eaeef8;
@@ -4694,5 +4715,412 @@ button.landing-card {
 
   .empty-chat .metor-composer-wrap {
     margin-bottom: 20px;
+  }
+}
+
+/* Interactive polish for the landing background and chat controls. */
+.landing-page.landing-page--custom-background {
+  background-image: var(--landing-background-url);
+}
+
+.metor-chat-page {
+  transition: grid-template-columns 260ms cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.metor-chat-page.sidebar-collapsed {
+  grid-template-columns: 76px minmax(0, 1fr);
+}
+
+.sidebar-collapsed .chat-sidebar-top .metor-logo span {
+  display: none;
+}
+
+.sidebar-collapsed .sidebar-user button {
+  display: none;
+}
+
+.sidebar-collapsed .sidebar-user .user-avatar {
+  display: grid;
+}
+
+.mode-tabs {
+  position: relative;
+  isolation: isolate;
+  overflow: hidden;
+  padding: 2px;
+}
+
+.mode-tabs::before {
+  position: absolute;
+  top: 2px;
+  bottom: 2px;
+  left: 2px;
+  z-index: 0;
+  width: calc((100% - 4px) / 3);
+  border: 1px solid #9cb9ff;
+  border-radius: 999px;
+  background: #edf3ff;
+  content: "";
+  transform: translateX(0);
+  transition: transform 280ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.mode-tabs[data-mode="expert"]::before {
+  transform: translateX(100%);
+}
+
+.mode-tabs[data-mode="image"]::before {
+  transform: translateX(200%);
+}
+
+.mode-tabs button {
+  position: relative;
+  z-index: 1;
+  border: 1px solid transparent;
+  background: transparent;
+  transition: color 220ms ease, transform 220ms ease;
+}
+
+.mode-tabs .active {
+  border-color: transparent;
+  background: transparent;
+}
+
+.chat-start-title h1 {
+  animation: mode-title-enter 220ms ease-out;
+}
+
+@keyframes mode-title-enter {
+  from {
+    opacity: 0.45;
+    transform: translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.search-dialog {
+  min-height: 0;
+}
+
+.search-results {
+  max-height: min(430px, calc(100vh - 245px));
+  overflow-y: auto;
+}
+
+@media (max-width: 768px) {
+  .metor-chat-page.sidebar-collapsed {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .sidebar-collapsed .metor-chat-sidebar {
+    align-items: stretch;
+    padding: 16px;
+  }
+
+  .sidebar-collapsed .chat-sidebar-top {
+    flex-direction: row;
+  }
+
+  .sidebar-collapsed .chat-sidebar-top .metor-logo span {
+    display: inline;
+  }
+
+  .sidebar-collapsed .sidebar-search-button {
+    display: grid;
+  }
+
+  .sidebar-collapsed .new-chat-button {
+    width: 100%;
+    gap: 8px;
+    font-size: 1rem;
+    margin-top: 31px;
+  }
+}
+
+.user-avatar {
+  overflow: hidden;
+}
+
+.sidebar-account .sidebar-user > .user-avatar {
+  display: grid;
+  width: 38px;
+  min-width: 38px;
+  height: 38px;
+  flex: 0 0 38px;
+  border-radius: 50%;
+  padding: 0;
+}
+
+.user-avatar img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  border-radius: 50%;
+  object-fit: cover;
+}
+
+.account-menu .ui-icon,
+.settings-tabs .ui-icon {
+  width: 21px;
+  height: 21px;
+}
+
+.theme-options.two-options {
+  max-width: 450px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.theme-options .ui-icon {
+  width: 25px;
+  height: 25px;
+}
+
+.language-options {
+  display: flex;
+  gap: 12px;
+}
+
+.language-options button {
+  min-width: 132px;
+  height: 48px;
+  border: 1px solid #dfe3ea;
+  border-radius: 999px;
+  background: #ffffff;
+  color: #20242c;
+  cursor: pointer;
+  font-weight: 700;
+}
+
+.language-options button.active {
+  border-color: #3f7cff;
+  background: #f1f4f9;
+  color: #245fff;
+}
+
+.settings-profile-name {
+  gap: 10px;
+}
+
+.settings-profile-name img {
+  width: 28px;
+  height: 28px;
+  border-radius: 999px;
+  object-fit: cover;
+}
+
+.settings-profile-name small {
+  border: 1px solid #e1e4ea;
+  border-radius: 999px;
+  color: #687181;
+  font-size: 0.8rem;
+  padding: 4px 8px;
+}
+
+.data-settings {
+  display: grid;
+}
+
+.data-row {
+  display: grid;
+  min-height: 92px;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 24px;
+  border-bottom: 1px solid #e4e6ea;
+  color: #20242c;
+}
+
+.data-row strong {
+  display: block;
+  font-weight: 500;
+}
+
+.data-row p {
+  max-width: 500px;
+  color: #8a919c;
+  font-size: 0.92rem;
+  line-height: 1.5;
+  margin: 8px 0 0;
+}
+
+.data-row button {
+  min-width: 90px;
+  height: 46px;
+  border: 1px solid #e1e4ea;
+  border-radius: 999px;
+  background: #ffffff;
+  color: #20242c;
+  cursor: pointer;
+  font-size: 1rem;
+  padding: 0 18px;
+}
+
+.data-row.danger-row button {
+  border-color: #ef4444;
+  color: #ef1212;
+}
+
+.settings-toggle {
+  display: flex;
+  width: 49px;
+  height: 30px;
+  align-items: center;
+  justify-content: flex-end;
+  border-radius: 999px;
+  background: #3867ff;
+  padding: 3px;
+}
+
+.settings-toggle span {
+  width: 24px;
+  height: 24px;
+  border-radius: 999px;
+  background: #ffffff;
+}
+
+.legal-document-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  display: grid;
+  place-items: center;
+  background: rgba(15, 15, 16, 0.45);
+  padding: 24px;
+}
+
+.legal-document-dialog {
+  display: grid;
+  width: min(680px, 100%);
+  max-height: min(640px, calc(100vh - 48px));
+  gap: 20px;
+  overflow-y: auto;
+  border-radius: 25px;
+  background: #ffffff;
+  box-shadow: 0 28px 80px rgba(15, 23, 42, 0.24);
+  color: #171a22;
+  padding: 28px 30px 32px;
+}
+
+.legal-document-dialog header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 20px;
+  border-bottom: 1px solid #e5e7ec;
+  padding-bottom: 18px;
+}
+
+.legal-document-dialog h2,
+.legal-document-dialog h3,
+.legal-document-dialog p {
+  margin: 0;
+}
+
+.legal-document-dialog header button {
+  display: grid;
+  width: 36px;
+  height: 36px;
+  place-items: center;
+  border: 0;
+  background: transparent;
+  color: #697281;
+  cursor: pointer;
+}
+
+.legal-document-dialog section {
+  display: grid;
+  gap: 8px;
+}
+
+.legal-document-dialog h3 {
+  font-size: 1rem;
+}
+
+.legal-document-dialog p {
+  color: #5d6777;
+  line-height: 1.62;
+}
+
+.chat-theme-dark .mode-tabs::before {
+  border-color: #5f8cff;
+  background: #263653;
+}
+
+.chat-theme-dark .mode-tabs,
+.chat-theme-dark .mode-tabs button {
+  border-color: #36373d;
+  background: #252527;
+  color: #e5e7eb;
+}
+
+.chat-theme-dark .mode-tabs button {
+  background: transparent;
+}
+
+.chat-theme-dark .mode-tabs .active {
+  color: #79a6ff;
+}
+
+.chat-theme-dark .language-options button,
+.chat-theme-dark .data-row button,
+.chat-theme-dark .legal-document-dialog {
+  border-color: #48494f;
+  background: #2b2b2e;
+  color: #f3f4f6;
+}
+
+.chat-theme-dark .language-options button.active {
+  border-color: #3f7cff;
+  background: #45464a;
+  color: #79a6ff;
+}
+
+.chat-theme-dark .data-row {
+  border-color: #424348;
+  color: #f3f4f6;
+}
+
+.chat-theme-dark .data-row p,
+.chat-theme-dark .legal-document-dialog p {
+  color: #c7cbd1;
+}
+
+.chat-theme-dark .legal-document-dialog header {
+  border-color: #424348;
+}
+
+@media (max-width: 720px) {
+  .settings-overlay {
+    padding: 10px;
+  }
+
+  .settings-dialog {
+    min-height: min(626px, calc(100vh - 20px));
+    padding: 20px 16px;
+  }
+
+  .settings-layout {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 20px;
+  }
+
+  .settings-tabs {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+
+  .settings-tabs button {
+    height: auto;
+    min-height: 54px;
+    justify-content: center;
+    padding: 8px 4px;
+    font-size: 0;
+  }
+
+  .data-row,
+  .profile-row {
+    gap: 12px;
   }
 }

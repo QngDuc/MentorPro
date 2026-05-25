@@ -20,8 +20,6 @@ GEMINI_MODEL=gemini-2.5-flash
 JWT_SECRET=your_secret_key
 SUPABASE_URL=your_supabase_url
 SUPABASE_ANON_KEY=your_supabase_anon_key
-# Cần cho backend lưu lịch sử nếu bảng Supabase bật RLS:
-SUPABASE_SERVICE_ROLE_KEY=your_supabase_service_role_key
 PORT=8000
 ```
 
@@ -29,8 +27,6 @@ PORT=8000
 https://aistudio.google.com/apikey
 
 Không dùng Supabase key, OAuth token hoặc token có định dạng khác thay cho khóa Gemini. API key Google AI Studio thường bắt đầu bằng `AIza`.
-
-`SUPABASE_SERVICE_ROLE_KEY` chỉ đặt ở `.env` backend hoặc secret triển khai, tuyệt đối không đặt trong `frontend/.env.local`. Backend dùng key này để lưu lịch sử theo `user_id` khi Supabase bật Row Level Security (RLS).
 
 3. Thiết lập frontend:
 
@@ -108,7 +104,6 @@ GEMINI_MODEL=gemini-2.5-flash
 JWT_SECRET=...
 SUPABASE_URL=...
 SUPABASE_ANON_KEY=...
-SUPABASE_SERVICE_ROLE_KEY=...
 ALLOWED_ORIGINS=https://your-frontend.vercel.app
 ```
 

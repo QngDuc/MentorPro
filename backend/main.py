@@ -6,7 +6,6 @@
 import os
 import io
 import time
-import uuid
 from datetime import datetime, timedelta, timezone
 from fastapi import FastAPI, UploadFile, File, HTTPException, Depends, Request
 from fastapi.middleware.cors import CORSMiddleware
@@ -186,8 +185,7 @@ model = init_model(model_to_use)
 
 # *** Cấu hình Supabase ***
 SUPABASE_URL = os.getenv("SUPABASE_URL", "")
-SUPABASE_SERVICE_ROLE_KEY = os.getenv("SUPABASE_SERVICE_ROLE_KEY", "")
-SUPABASE_KEY = SUPABASE_SERVICE_ROLE_KEY or os.getenv("SUPABASE_ANON_KEY", "")
+SUPABASE_KEY = os.getenv("SUPABASE_ANON_KEY", "")
 
 mock_db = {"users": {}, "messages": {}, "ocr_logs": {}}
 
@@ -288,7 +286,6 @@ def detailed_health_check():
             "gemini_key_looks_like_api_key": bool(GEMINI_API_KEY and GEMINI_API_KEY.startswith("AIza")),
             "model_initialized": model is not None,
             "supabase_connected": bool(supabase),
-            "supabase_server_write_key_set": bool(SUPABASE_SERVICE_ROLE_KEY),
         },
         "version": "1.0.0",
     }
@@ -303,7 +300,7 @@ async def register(user_data: UserRegister):
         if len(user_data.password) < 6:
             raise HTTPException(status_code=400, detail="Mật khẩu phải có ít nhất 6 ký tự")
         
-        user_id = f"user_{uuid.uuid4().hex}"
+        user_id = f"user_{int(time.time() * 1000)}"
         hashed_password = hash_password(user_data.password)
         
         user_record = {
@@ -398,8 +395,6 @@ async def auth_exchange(payload: TokenExchange):
 
         user_data = user_resp.json()
         supabase_user_id = user_data.get("id")
-        if not supabase_user_id:
-            raise HTTPException(status_code=401, detail="Supabase token không chứa user_id hợp lệ")
         email = user_data.get("email", "")
         user_metadata = user_data.get("user_metadata", {})
         full_name = user_metadata.get("full_name") or user_metadata.get("name") or ""
@@ -490,7 +485,7 @@ async def chat_api(body: ChatMessage, current_user: dict = Depends(get_current_u
         except Exception: ai_sentiment = {"emotion": "unknown"}
         
         timestamp = datetime.now().isoformat()
-        message_id = f"{user_id}_{uuid.uuid4().hex}"
+        message_id = f"{user_id}_{int(time.time() * 1000)}"
 
         user_msg = {"user_id": user_id, "message_id": f"{message_id}_user", "content": message, "role": "user", "sentiment": user_sentiment, "created_at": timestamp}
         ai_msg = {"user_id": user_id, "message_id": f"{message_id}_ai", "content": reply_text, "role": "assistant", "sentiment": ai_sentiment, "created_at": timestamp}
@@ -507,7 +502,6 @@ async def chat_api(body: ChatMessage, current_user: dict = Depends(get_current_u
             mock_db["messages"][user_id].extend([user_msg, ai_msg])
         
         return {
-            "user_id": user_id,
             "ai_response": reply_text,
             "timestamp": timestamp,
             "message_id": message_id,

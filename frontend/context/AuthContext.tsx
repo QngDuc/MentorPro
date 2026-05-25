@@ -103,21 +103,6 @@ export function AuthProvider({
       setUser(storedUser);
       setIsDemoSession(demo);
 
-      if (storedToken && !demo) {
-        try {
-          const verifiedProfile = await getProfileRequest(storedToken);
-          persistSession({
-            token: storedToken,
-            user: { ...storedUser, ...verifiedProfile },
-          });
-        } catch {
-          setToken(null);
-          setUser(null);
-          window.localStorage.removeItem("token");
-          window.localStorage.removeItem("mentorpro-user");
-        }
-      }
-
       // ===== SUPABASE SESSION =====
       const {
         data: { session },

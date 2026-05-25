@@ -6,7 +6,7 @@ import { ChangeEvent, useEffect, useMemo, useRef, useState } from "react";
 
 import { MetorLogo } from "@/components/metor/MetorLogo";
 import { useAuth } from "@/context/AuthContext";
-import { chatRequest, ChatHistoryItem, getChatHistoryRequest, ocrRequest } from "@/lib/api";
+import { chatRequest, ocrRequest } from "@/lib/api";
 
 type ChatMode = "fast" | "expert" | "image";
 
@@ -41,7 +41,6 @@ export default function ChatPage() {
   const [attachedFile, setAttachedFile] = useState<File | null>(null);
   const [imagePreview, setImagePreview] = useState<string | null>(null);
   const [historyReady, setHistoryReady] = useState(false);
-  const [loadedHistoryKey, setLoadedHistoryKey] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
@@ -50,27 +49,12 @@ export default function ChatPage() {
     () => `mentorpro-chats:${user?.user_id ?? user?.email ?? "guest"}`,
     [user?.email, user?.user_id],
   );
-  const hasBackendHistory = Boolean(token && user?.user_id && user.user_id !== "guest");
   const displayName = user?.full_name || user?.username || (token ? "Tài khoản" : "Khách dùng thử");
 
   useEffect(() => {
-    queueMicrotask(async () => {
+    queueMicrotask(() => {
       setMessages([]);
       setActiveConversationId(null);
-
-      if (hasBackendHistory && token && user?.user_id) {
-        try {
-          const data = await getChatHistoryRequest(token);
-          const conversation = toAccountConversation(user.user_id, data.history);
-          setHistory(conversation ? [conversation] : []);
-        } catch {
-          setHistory([]);
-        } finally {
-          setLoadedHistoryKey(storageKey);
-          setHistoryReady(true);
-        }
-        return;
-      }
 
       try {
         const saved = localStorage.getItem(storageKey);
@@ -78,15 +62,14 @@ export default function ChatPage() {
       } catch {
         setHistory([]);
       }
-      setLoadedHistoryKey(storageKey);
       setHistoryReady(true);
     });
-  }, [hasBackendHistory, storageKey, token, user?.user_id]);
+  }, [storageKey]);
 
   useEffect(() => {
-    if (!historyReady || hasBackendHistory || loadedHistoryKey !== storageKey) return;
+    if (!historyReady) return;
     localStorage.setItem(storageKey, JSON.stringify(history));
-  }, [hasBackendHistory, history, historyReady, loadedHistoryKey, storageKey]);
+  }, [history, historyReady, storageKey]);
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -169,9 +152,6 @@ export default function ChatPage() {
       } else {
         const prompt = mode === "expert" ? `Hãy trả lời chuyên sâu, có cấu trúc rõ ràng:\n\n${text}` : text;
         const response = await chatRequest(prompt, token);
-        if (hasBackendHistory && response.user_id !== user?.user_id) {
-          throw new Error("Phiên đăng nhập không khớp người dùng lưu lịch sử.");
-        }
         appendMessage(conversationId, {
           id: `${requestId}-assistant`,
           role: "assistant",
@@ -385,24 +365,6 @@ function getConversationTitle(messages: ChatMessage[]) {
   const content = messages.find((message) => message.role === "user")?.content ?? "Cuộc trò chuyện mới";
   const clean = content.replace(/\s+/g, " ").trim();
   return clean.length > 35 ? `${clean.slice(0, 32)}...` : clean;
-}
-
-function toAccountConversation(userId: string, history: ChatHistoryItem[]): ChatConversation | null {
-  if (!history.length) return null;
-
-  const messages: ChatMessage[] = history.map((item) => ({
-    id: item.message_id,
-    role: item.role,
-    content: item.content,
-    timestamp: item.created_at ?? new Date().toISOString(),
-  }));
-
-  return {
-    id: `account-history:${userId}`,
-    title: "Lịch sử tài khoản",
-    messages,
-    updatedAt: new Date(messages[messages.length - 1].timestamp).getTime(),
-  };
 }
 
 function getInitial(name: string) {

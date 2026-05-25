@@ -17,7 +17,6 @@ export type UserProfile = {
 };
 
 export type ChatApiResponse = {
-  user_id?: string;
   ai_response?: string;
   timestamp?: string;
   message_id?: string;

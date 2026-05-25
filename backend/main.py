@@ -132,7 +132,7 @@ def create_access_token(user_id: str) -> str:
         "user_id": user_id,
         "exp": datetime.utcnow() + timedelta(hours=JWT_EXPIRATION_HOURS)
     }
-    return jwt.encode(payload, JWT_SECRET, algorithm=JWT_ALGORITHM)
+    return jwt.encode(payload, JWT_SECRET_KEY, algorithm=JWT_ALGORITHM)
 
 
 
@@ -141,7 +141,7 @@ def verify_token(token: str) -> dict:
     Xác thực JWT token, trả về payload hoặc raise lỗi nếu hết hạn/hỏng
     """
     try:
-        payload = jwt.decode(token, JWT_SECRET, algorithms=[JWT_ALGORITHM])
+        payload = jwt.decode(token, JWT_SECRET_KEY, algorithms=[JWT_ALGORITHM])
         return payload
     except jwt.ExpiredSignatureError:
         raise HTTPException(status_code=401, detail="Token hết hạn")
@@ -452,7 +452,7 @@ def health_check():
         "environment": {
             "gemini_key_set": bool(GEMINI_API_KEY),
             "supabase_connected": bool(supabase),
-            "jwt_secret_set": bool(JWT_SECRET),
+            "jwt_secret_set": bool(JWT_SECRET_KEY),
         },
         "version": "1.0.0"
     }

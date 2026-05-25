@@ -78,9 +78,10 @@ function Metric({
         <strong>{value}%</strong>
       </div>
       <div className="metric-track">
-        <div
+        <progress
           className={subdued ? "metric-fill subdued" : "metric-fill"}
-          style={{ width: `${value}%` }}
+          value={value}
+          max={100}
         />
       </div>
     </div>

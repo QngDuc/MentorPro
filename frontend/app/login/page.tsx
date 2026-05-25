@@ -24,7 +24,13 @@ const MIN_PASSWORD_LENGTH = 8;
 
 export default function LoginPage() {
   const router = useRouter();
-  const { login, setSession } = useAuth();
+
+  const {
+    login,
+    setSession,
+    signInWithGoogle,
+  } = useAuth();
+
   const [authMode, setAuthMode] = useState<AuthMode>("login");
   const [loginEmail, setLoginEmail] = useState("");
   const [loginPassword, setLoginPassword] = useState("");
@@ -37,12 +43,14 @@ export default function LoginPage() {
   const [status, setStatus] = useState<AuthStatus>(null);
   const [fieldErrors, setFieldErrors] = useState<AuthFieldErrors>({});
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const [visiblePasswords, setVisiblePasswords] = useState<Record<PasswordFieldKey, boolean>>({
-    login: false,
-    signup: false,
-    confirm: false,
-  });
 
+  const [visiblePasswords, setVisiblePasswords] =
+    useState<Record<PasswordFieldKey, boolean>>({
+      login: false,
+      signup: false,
+      confirm: false,
+    });
+    
   useEffect(() => {
     queueMicrotask(() => {
       const params = new URLSearchParams(window.location.search);
@@ -248,13 +256,13 @@ export default function LoginPage() {
               </button>
             </div>
 
-            <button type="submit" className="login-button" disabled={isSubmitting}>
+            <button type="submit" className="login-button" disabled={isSubmitting} title="Đăng nhập">
               <ButtonLabel loading={isSubmitting} loadingText="Đang đăng nhập..." label="Đăng nhập" />
             </button>
 
             <div className="social-divider">
               <span />
-              <button type="button" aria-label="Đăng nhập với Google">
+              <button type="button" aria-label="Đăng nhập với Google" onClick={signInWithGoogle}>
                 <GoogleIcon />
               </button>
               <button type="button" aria-label="Đăng nhập với Apple">
@@ -338,7 +346,7 @@ export default function LoginPage() {
 
             <StatusMessage status={status} />
 
-            <button type="submit" className="login-button" disabled={isSubmitting}>
+            <button type="submit" className="login-button" disabled={isSubmitting} aria-label="Đăng ký">
               <ButtonLabel loading={isSubmitting} loadingText="Đang đăng ký..." label="Đăng ký" />
             </button>
 
@@ -381,7 +389,7 @@ export default function LoginPage() {
 
             <StatusMessage status={status} />
 
-            <button type="submit" className="login-button" disabled={isSubmitting}>
+            <button type="submit" className="login-button" disabled={isSubmitting} title="Tiếp tục">
               <ButtonLabel loading={isSubmitting} loadingText="Đang xử lý..." label="Tiếp tục" />
             </button>
 

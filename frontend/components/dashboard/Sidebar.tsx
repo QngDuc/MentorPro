@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { Icon } from "./Icon";
 
 const navigation = [
@@ -22,20 +23,24 @@ export function Sidebar() {
       </div>
 
       <nav className="mt-10 space-y-3">
-        {navigation.map((item) => (
-          <a
-            href="#"
-            key={item.label}
-            className={`sidebar-link ${item.active ? "sidebar-link-active" : ""}`}
-          >
-            <Icon name={item.icon} className="h-6 w-6" />
-            <span>{item.label}</span>
-          </a>
-        ))}
+        {navigation.map((item) => {
+          const slug = item.label.toLowerCase().replace(/\s+/g, "-");
+          return (
+            <Link
+              href={`/${slug}`}
+              key={item.label}
+              className={`sidebar-link ${item.active ? "sidebar-link-active" : ""}`}
+              aria-current={item.active ? "page" : undefined}
+            >
+              <Icon name={item.icon} className="h-6 w-6" />
+              <span>{item.label}</span>
+            </Link>
+          );
+        })}
       </nav>
 
       <div className="mt-auto">
-        <button className="new-session-button" type="button">
+        <button className="new-session-button" type="button" aria-label="New Analysis Session">
           <Icon name="plus" className="h-6 w-6" />
           <span>New Analysis Session</span>
         </button>

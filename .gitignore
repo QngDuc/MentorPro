@@ -13,3 +13,8 @@ backend/__pycache__/
 # Node
 frontend/node_modules/
 frontend/.next/
+
+
+
+node_modules/
+.vscode/

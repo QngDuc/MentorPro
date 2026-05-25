@@ -6,7 +6,9 @@ import { useRouter } from "next/navigation";
 import { MetorLogo } from "@/components/metor/MetorLogo";
 
 export default function LandingPage() {
+  console.log(process.env.NEXT_PUBLIC_SUPABASE_URL);
   const router = useRouter();
+  const mainRef = useRef<HTMLElement | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [backgroundUrl, setBackgroundUrl] = useState<string | null>(null);
 
@@ -14,6 +16,19 @@ export default function LandingPage() {
     return () => {
       if (backgroundUrl) URL.revokeObjectURL(backgroundUrl);
     };
+  }, [backgroundUrl]);
+
+  useEffect(() => {
+    if (!mainRef.current) return;
+
+    if (backgroundUrl) {
+      mainRef.current.style.setProperty(
+        "--landing-background-url",
+        `linear-gradient(rgba(247,250,255,.35), rgba(247,250,255,.35)), url(${backgroundUrl})`
+      );
+    } else {
+      mainRef.current.style.removeProperty("--landing-background-url");
+    }
   }, [backgroundUrl]);
 
   const handleBackgroundChange = (event: ChangeEvent<HTMLInputElement>) => {
@@ -31,19 +46,19 @@ export default function LandingPage() {
     router.push("/login");
   };
 
+  const handleOAuthLogin = (provider: string) => {
+    alert(`${provider} login would redirect to OAuth provider`);
+  };
+
   return (
     <main
-      className="landing-page"
-      style={
-        backgroundUrl
-          ? { backgroundImage: `linear-gradient(rgba(247,250,255,.35), rgba(247,250,255,.35)), url(${backgroundUrl})` }
-          : undefined
-      }
+      ref={mainRef}
+      className={`landing-page${backgroundUrl ? " landing-page--custom-background" : ""}`}
     >
       <header className="landing-header">
         <MetorLogo />
         <div className="landing-actions">
-          <input
+          <input placeholder="file-input"
             ref={fileInputRef}
             type="file"
             accept="image/*"

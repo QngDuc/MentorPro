@@ -1,39 +1,30 @@
+@import url('https://fonts.googleapis.com/css2?family=Unica+One&display=swap');
 @import "tailwindcss";
 
+@layer utilities {
+  .delay-2000 { animation-delay: 2s; }
+  .delay-4000 { animation-delay: 4s; }
+}
+
 :root {
-  --color-primary: #3867ff;
-  --color-primary-strong: #075fd9;
-  --color-primary-soft: #eef4ff;
-  --color-surface: #ffffff;
-  --color-surface-muted: #f5f8fc;
-  --color-background: #f7f7fa;
-  --color-text: #121118;
-  --color-text-strong: #061d3b;
-  --color-muted: #6f6a7c;
-  --color-border: #e6e3ec;
-  --color-error: #be123c;
-  --color-error-soft: #fff1f2;
-  --color-success: #047857;
-  --color-success-soft: #ecfdf5;
-  --radius-base: 8px;
-  --radius-sm: 8px;
-  --radius-md: 14px;
-  --radius-lg: 22px;
-  --radius-xl: 28px;
-  --space-page-x: clamp(16px, 4vw, 32px);
-  --space-page-y: clamp(24px, 5vw, 72px);
-  --background: var(--color-background);
-  --surface: var(--color-surface);
-  --ink: var(--color-text);
-  --muted: var(--color-muted);
-  --line: var(--color-border);
-  --mentor-blue: var(--color-primary);
-  --mentor-blue-strong: var(--color-primary-strong);
-  --mentor-ink: var(--color-text-strong);
-  --mentor-radius-sm: var(--radius-sm);
-  --mentor-radius-md: var(--radius-md);
-  --mentor-radius-lg: var(--radius-lg);
-  --mentor-radius-xl: var(--radius-xl);
+  --background: linear-gradient(180deg, #fffafa 0%, #fff 40%);
+  --foreground: #0b0b0b;
+  --ink: #121316;
+  --purple: #6d53dd;
+  --purple-strong: #5a2bd6;
+  --purple-soft: #f4efff;
+  --line: #eceaf3;
+  --surface: #ffffff;
+  --ink: #121118;
+  --muted: #6f6a7c;
+  --line: #e6e3ec;
+  --mentor-blue: #3867ff;
+  --mentor-blue-strong: #075fd9;
+  --mentor-ink: #061d3b;
+  --mentor-radius-sm: 8px;
+  --mentor-radius-md: 14px;
+  --mentor-radius-lg: 22px;
+  --mentor-radius-xl: 28px;
   --purple: #6d35dd;
   --purple-strong: #5f22f2;
   --purple-soft: #f1ebff;
@@ -69,7 +60,9 @@ body {
   margin: 0;
   background: var(--background);
   color: var(--ink);
-  font-family: Arial, Helvetica, sans-serif;
+  font-family: "Unica One", sans-serif;
+  font-weight: 400;
+  font-style: normal;
 }
 
 button,
@@ -121,6 +114,70 @@ select {
   min-height: 100vh;
   overflow: hidden;
   background: var(--background);
+}
+
+/* Utility classes used on the login / landing page */
+.app-bg {
+  background: var(--background);
+}
+
+.center-card {
+  background: var(--surface);
+  border-radius: 1rem;
+  box-shadow: 0 8px 30px rgba(15, 23, 36, 0.12);
+}
+
+.login-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 20px;
+  border-radius: 12px;
+  background: linear-gradient(180deg, var(--purple) 0%, var(--purple-strong) 100%);
+  color: white;
+  font-weight: 800;
+  cursor: pointer;
+  border: 0;
+}
+
+.social-divider {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.social-divider > span {
+  display: block;
+  height: 1px;
+  width: 48px;
+  background: #e9e7ef;
+}
+
+.login-footer {
+  position: absolute;
+  bottom: 18px;
+  left: 50%;
+  transform: translateX(-50%);
+  color: #9b98a3;
+  font-size: 0.9rem;
+}
+
+.logo-circle {
+  width: 36px;
+  height: 36px;
+  border-radius: 999px;
+  background: linear-gradient(180deg,#0f1724 0%, #061226 100%);
+}
+
+.brand-icon {
+  display: grid;
+  place-items: center;
+}
+
+/* Small accessibility focus style */
+:focus {
+  outline: 3px solid rgba(90,45,214,0.18);
+  outline-offset: 2px;
 }
 
 .dashboard-sidebar {
@@ -612,6 +669,7 @@ select {
   background-image: radial-gradient(circle, rgba(82, 211, 255, 0.35) 1px, transparent 2px);
   background-size: 24px 24px;
   content: "";
+  -webkit-mask-image: radial-gradient(circle, black 0, transparent 68%);
   mask-image: radial-gradient(circle, black 0, transparent 68%);
 }
 
@@ -734,6 +792,7 @@ select {
   background: rgba(255, 255, 255, 0.96);
   box-shadow: 0 18px 35px rgba(24, 20, 34, 0.15);
   padding: 0 20px 0 28px;
+  -webkit-backdrop-filter: blur(14px);
   backdrop-filter: blur(14px);
 }
 
@@ -1496,7 +1555,7 @@ select {
   }
 
   .metor-chat-sidebar {
-    min-height: auto;
+    min-height: 0;
     border-bottom: 1px solid #e8ebf0;
     border-right: 0;
   }
@@ -1826,6 +1885,7 @@ select {
   display: grid;
   place-items: center;
   background: rgba(15, 15, 16, 0.38);
+  -webkit-backdrop-filter: blur(3px);
   backdrop-filter: blur(3px);
   padding: 24px;
 }
@@ -1838,6 +1898,7 @@ select {
   align-items: start;
   justify-items: center;
   background: rgba(15, 15, 16, 0.38);
+  -webkit-backdrop-filter: blur(3px);
   backdrop-filter: blur(3px);
   padding: 128px 24px 24px;
 }
@@ -1982,6 +2043,7 @@ select {
   display: grid;
   place-items: center;
   background: rgba(15, 15, 16, 0.38);
+  -webkit-backdrop-filter: blur(3px);
   backdrop-filter: blur(3px);
   padding: 24px;
 }
@@ -2823,7 +2885,7 @@ select {
   }
 
   .metor-chat-sidebar {
-    min-height: auto;
+    min-height: 0;
     border-bottom: 1px solid #e8ebf0;
     border-right: 0;
     padding: 18px 14px;

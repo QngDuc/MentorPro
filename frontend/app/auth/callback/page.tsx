@@ -34,7 +34,7 @@ export default function AuthCallbackPage() {
 
         // 2. Trao đổi Supabase token lấy backend JWT.
         try {
-          const apiBase = (process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:8000").trim().replace(/\/$/, "");
+          const apiBase = (process.env.NEXT_PUBLIC_API_BASE_URL ?? "https://mentor-pro-frontend-d487.vercel.app").trim().replace(/\/$/, "");
 
           const resp = await fetch(`${apiBase}/auth/exchange`, {
             method: "POST",

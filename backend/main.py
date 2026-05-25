@@ -15,8 +15,7 @@ from dotenv import load_dotenv
 import jwt
 from pydantic import BaseModel, EmailStr, Field
 import requests
-from google import genai
-from google.genai import types
+import google.generativeai as genai
 from PIL import Image  # type: ignore
 from textblob import TextBlob
 import bcrypt
@@ -167,18 +166,12 @@ model_to_use = os.getenv("GEMINI_MODEL", "gemini-2.5-flash")
 
 def init_model(model_name: str):
     try:
-        client = genai.Client(api_key=GEMINI_API_KEY)
-        system_instruction = "Bạn là MentorPro, một người bạn thân thiết, tâm lý và thông minh. Hãy tư vấn cho người dùng một cách chân thành, sử dụng ngôn ngữ gần gũi như bạn bè."
-
-        class ConfiguredModel:
-            def generate_content(self, contents):
-                return client.models.generate_content(
-                    model=model_name,
-                    contents=contents,
-                    config=types.GenerateContentConfig(system_instruction=system_instruction),
-                )
-
-        return ConfiguredModel()
+        genai.configure(api_key=GEMINI_API_KEY)
+        model = genai.GenerativeModel(
+            model_name=model_name,
+            system_instruction="Bạn là MentorPro, một người bạn thân thiết, tâm lý và thông minh. Hãy tư vấn cho người dùng một cách chân thành, sử dụng ngôn ngữ gần gũi như bạn bè."
+        )
+        return model
     except Exception:
         return None
 

@@ -748,7 +748,8 @@ async def update_profile(profile: UserProfile, current_user: dict = Depends(get_
 # =============================
 
 @app.post("/chat")
-async def chat_api(message: str = Form(...), current_user: dict = Depends(get_current_user)):
+async def chat_api(body: ChatMessage, current_user: dict = Depends(get_current_user)):
+    message = body.message  # thêm dòng này vào đầu hàm
     """
     Gửi tin nhắn và nhận phản hồi từ AI.
     - Yêu cầu: JWT token (hoặc anonymous)
@@ -794,7 +795,7 @@ async def chat_api(message: str = Form(...), current_user: dict = Depends(get_cu
             # Use timeout to prevent hanging on Vercel
             import asyncio
             # Gemini generate_content is synchronous, so we need to handle it carefully
-            ai_response = model.generate_content(message, timeout=30)
+            ai_response = model.generate_content(message)
             
             if not ai_response or not ai_response.text:
                 print("❌ Gemini returned empty response")

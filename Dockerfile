@@ -17,19 +17,19 @@ RUN apt-get update \
        libgl1 \
     && rm -rf /var/lib/apt/lists/*
 
-# Copy only requirements first for better Docker layer caching
-COPY requirements.txt /app/requirements.txt
+# Copy only backend requirements first for better Docker layer caching
+COPY backend/requirements.txt /app/requirements.txt
 
 # Upgrade pip then install Python deps
 RUN pip install --upgrade pip \
     && pip install --no-cache-dir -r /app/requirements.txt
 
-# Copy application code
-COPY . /app
+# Copy backend application code
+COPY backend /app/backend
 
 # Expose the common HF Spaces port (7860). Use $PORT if provided.
 EXPOSE 7860
 ENV PORT=7860
 
 # Use a shell form so we can respect the optional $PORT env var on HF
-CMD ["sh", "-c", "uvicorn main:app --host 0.0.0.0 --port ${PORT}" ]
+CMD ["sh", "-c", "uvicorn backend.main:app --host 0.0.0.0 --port ${PORT}" ]

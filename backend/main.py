@@ -6,16 +6,17 @@
 import os
 import io
 import time
+import uuid
 from datetime import datetime, timedelta, timezone
-from fastapi import FastAPI, UploadFile, File, Form, HTTPException, Depends, Request
+from fastapi import FastAPI, UploadFile, File, HTTPException, Depends, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
 from fastapi.security import HTTPBearer
 from dotenv import load_dotenv
 import jwt
-from pydantic import BaseModel, EmailStr
+from pydantic import BaseModel, EmailStr, Field
 import requests
-import google.generativeai as genai
+from google import genai
+from google.genai import types
 from PIL import Image  # type: ignore
 from textblob import TextBlob
 import bcrypt
@@ -35,8 +36,6 @@ MAX_REQUESTS_PER_MINUTE = 10
 user_requests = {}  
 MAX_FILE_SIZE_BYTES = 10 * 1024 * 1024  # 10 MB
 
-print(f"Debug GEMINI_API_KEY: {GEMINI_API_KEY[:20] if GEMINI_API_KEY else 'NOT SET'}...")
-
 if not GEMINI_API_KEY:
     raise ValueError("Thiếu GEMINI_API_KEY trong cấu hình hệ thống!")
 
@@ -55,7 +54,7 @@ class UserLogin(BaseModel):
 class UserProfile(BaseModel):
     full_name: str = ""
     category: str = ""
-    preferences: dict = {}
+    preferences: dict = Field(default_factory=dict)
 
 class ChatMessage(BaseModel):
     message: str
@@ -104,7 +103,7 @@ def analyze_sentiment(text: str) -> dict:
             "emotion": emotion
         }
     except (LookupError, Exception) as e:
-        print(f"⚠️ TextBlob/NLTK không khả dụng: {e}. Chuyển sang fallback phân tích từ khóa.")
+        print(f"TextBlob/NLTK unavailable, using keyword fallback: {e}")
         return analyze_sentiment_fallback(text)
 
 def analyze_sentiment_fallback(text: str) -> dict:
@@ -133,7 +132,7 @@ def analyze_sentiment_fallback(text: str) -> dict:
             "source": "fallback"
         }
     except Exception as e:
-        print(f"❌ Phân tích fallback thất bại: {e}")
+        print(f"Sentiment fallback failed: {e}")
         return {"emotion": "unknown", "source": "error"}
 
 def generate_summary(messages: list) -> str:
@@ -142,8 +141,16 @@ def generate_summary(messages: list) -> str:
         summary_prompt = f"Tóm tắt cuộc trò chuyện sau thành 1-2 câu ngắn gọn, chuyên sâu:\n\n{conversation_text}\n\nTóm tắt:"
         summary_response = model.generate_content(summary_prompt)
         return summary_response.text
-    except Exception:
-        return "Không thể tạo tóm tắt"
+    except Exception as exc:
+        return ai_service_error_message(exc)
+
+def ai_service_error_message(exc: Exception) -> str:
+    message = str(exc)
+    if "401" in message or "UNAUTHENTICATED" in message or "API_KEY_INVALID" in message:
+        return "GEMINI_API_KEY không hợp lệ. Hãy tạo API key Gemini mới trong Google AI Studio và cập nhật file .env."
+    if "429" in message or "RESOURCE_EXHAUSTED" in message:
+        return "Dịch vụ AI đang vượt giới hạn sử dụng. Vui lòng thử lại sau."
+    return "Dịch vụ AI tạm thời không phản hồi. Vui lòng thử lại."
 
 def check_rate_limit(user_id: str):
     now = time.time()
@@ -156,28 +163,22 @@ def check_rate_limit(user_id: str):
 
 # --- CẤU HÌNH AI & DATABASE ---
 
-genai.configure(api_key=GEMINI_API_KEY)
-
-STABLE_MODELS = ["gemini-1.5-pro", "gemini-1.5-flash", "gemini-2.0-flash"]
-model_to_use = "gemini-1.5-pro"
-
-try:
-    available_models = list(genai.list_models())
-    available_names = [m.name for m in available_models]
-    
-    for stable_model in STABLE_MODELS:
-        if f"models/{stable_model}" in available_names or f"models/latest/{stable_model}" in available_names:
-            model_to_use = stable_model
-            break
-except Exception as e:
-    print(f"⚠️ Sử dụng mặc định: {model_to_use} ({e})")
+model_to_use = os.getenv("GEMINI_MODEL", "gemini-2.5-flash")
 
 def init_model(model_name: str):
     try:
-        return genai.GenerativeModel(
-            model_name=model_name,
-            system_instruction="Bạn là MentorPro, một người bạn thân thiết, tâm lý và thông minh. Hãy tư vấn cho người dùng một cách chân thành, sử dụng ngôn ngữ gần gũi như bạn bè."
-        )
+        client = genai.Client(api_key=GEMINI_API_KEY)
+        system_instruction = "Bạn là MentorPro, một người bạn thân thiết, tâm lý và thông minh. Hãy tư vấn cho người dùng một cách chân thành, sử dụng ngôn ngữ gần gũi như bạn bè."
+
+        class ConfiguredModel:
+            def generate_content(self, contents):
+                return client.models.generate_content(
+                    model=model_name,
+                    contents=contents,
+                    config=types.GenerateContentConfig(system_instruction=system_instruction),
+                )
+
+        return ConfiguredModel()
     except Exception:
         return None
 
@@ -185,20 +186,21 @@ model = init_model(model_to_use)
 
 # *** Cấu hình Supabase ***
 SUPABASE_URL = os.getenv("SUPABASE_URL", "")
-SUPABASE_KEY = os.getenv("SUPABASE_ANON_KEY", "")
+SUPABASE_SERVICE_ROLE_KEY = os.getenv("SUPABASE_SERVICE_ROLE_KEY", "")
+SUPABASE_KEY = SUPABASE_SERVICE_ROLE_KEY or os.getenv("SUPABASE_ANON_KEY", "")
 
 mock_db = {"users": {}, "messages": {}, "ocr_logs": {}}
 
 if not SUPABASE_URL or not SUPABASE_KEY:
-    print("⚠️ Thiếu biến môi trường Supabase! Sử dụng Mock DB.")
+    print("Supabase environment missing; using in-memory mock database.")
     supabase = None
 else:
     try:
         from supabase import create_client
         supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
-        print("✅ Kết nối Supabase thành công")
+        print("Supabase client initialized.")
     except Exception as e:
-        print(f"❌ Lỗi kết nối Supabase: {e}. Chuyển sang Mock DB.")
+        print(f"Supabase initialization failed; using mock database: {e}")
         supabase = None
 
 # --- KHỞI TẠO FASTAPI APP ---
@@ -233,17 +235,41 @@ async def get_current_user(credentials = Depends(security), request: Request = N
     if not credentials:
         try: client_ip = request.client.host if request and request.client else "unknown"
         except Exception: client_ip = "unknown"
-        anon_id = f"anon_{hashlib.sha256((client_ip + str(time.time())).encode()).hexdigest()[:12]}"
-        return {"user_id": anon_id}
+        anon_id = f"anon_{hashlib.sha256(client_ip.encode()).hexdigest()[:12]}"
+        return {"user_id": anon_id, "anonymous": True}
 
     token = credentials.credentials
-    try:
-        return verify_token(token)
-    except Exception:
-        try: client_ip = request.client.host if request and request.client else "unknown"
-        except Exception: client_ip = "unknown"
-        anon_id = f"anon_{hashlib.sha256((client_ip + str(time.time())).encode()).hexdigest()[:12]}"
-        return {"user_id": anon_id}
+    return verify_token(token)
+
+async def require_current_user(credentials = Depends(security)) -> dict:
+    if not credentials:
+        raise HTTPException(status_code=401, detail="Bạn cần đăng nhập để sử dụng chức năng này")
+    return verify_token(credentials.credentials)
+
+def find_user(user_id: str) -> dict | None:
+    if supabase:
+        try:
+            response = supabase.table("users").select("*").eq("user_id", user_id).execute()
+            if response.data:
+                return response.data[0]
+        except Exception:
+            pass
+    return mock_db["users"].get(user_id)
+
+def get_user_messages(user_id: str) -> list:
+    if supabase:
+        try:
+            response = (
+                supabase.table("messages")
+                .select("*")
+                .eq("user_id", user_id)
+                .order("created_at")
+                .execute()
+            )
+            return response.data or []
+        except Exception:
+            pass
+    return mock_db["messages"].get(user_id, [])
 
 @app.get("/")
 def health_check():
@@ -251,6 +277,20 @@ def health_check():
         "status": "MentorPro Backend is live!",
         "environment": {"gemini_key_set": bool(GEMINI_API_KEY), "supabase_connected": bool(supabase)},
         "version": "1.0.0"
+    }
+
+@app.get("/health/detailed")
+def detailed_health_check():
+    return {
+        "status": "ok",
+        "services": {
+            "gemini_configured": bool(GEMINI_API_KEY),
+            "gemini_key_looks_like_api_key": bool(GEMINI_API_KEY and GEMINI_API_KEY.startswith("AIza")),
+            "model_initialized": model is not None,
+            "supabase_connected": bool(supabase),
+            "supabase_server_write_key_set": bool(SUPABASE_SERVICE_ROLE_KEY),
+        },
+        "version": "1.0.0",
     }
 
 # =============================
@@ -263,7 +303,7 @@ async def register(user_data: UserRegister):
         if len(user_data.password) < 6:
             raise HTTPException(status_code=400, detail="Mật khẩu phải có ít nhất 6 ký tự")
         
-        user_id = f"user_{int(time.time() * 1000)}"
+        user_id = f"user_{uuid.uuid4().hex}"
         hashed_password = hash_password(user_data.password)
         
         user_record = {
@@ -358,6 +398,8 @@ async def auth_exchange(payload: TokenExchange):
 
         user_data = user_resp.json()
         supabase_user_id = user_data.get("id")
+        if not supabase_user_id:
+            raise HTTPException(status_code=401, detail="Supabase token không chứa user_id hợp lệ")
         email = user_data.get("email", "")
         user_metadata = user_data.get("user_metadata", {})
         full_name = user_metadata.get("full_name") or user_metadata.get("name") or ""
@@ -370,6 +412,14 @@ async def auth_exchange(payload: TokenExchange):
             "email": email,
             "full_name": full_name,
         }
+        if supabase_user_id and not find_user(supabase_user_id):
+            mock_db["users"][supabase_user_id] = {
+                **user_profile,
+                "username": email.split("@")[0] if email else "mentorpro-user",
+                "category": "General",
+                "preferences": {},
+                "created_at": datetime.now().isoformat(),
+            }
 
         return {"token": backend_token, "user": user_profile}
 
@@ -380,6 +430,38 @@ async def auth_exchange(payload: TokenExchange):
 # =============================
 # CHAT & AI ENDPOINTS
 # =============================
+
+@app.get("/user/profile")
+async def get_profile(current_user: dict = Depends(require_current_user)):
+    user_id = current_user["user_id"]
+    user = find_user(user_id)
+    if not user:
+        return {
+            "user_id": user_id,
+            "full_name": "",
+            "category": "General",
+            "preferences": {},
+        }
+    return {key: value for key, value in user.items() if key != "password_hash"}
+
+@app.put("/user/profile")
+async def update_profile(profile: UserProfile, current_user: dict = Depends(require_current_user)):
+    user_id = current_user["user_id"]
+    existing = find_user(user_id) or {"user_id": user_id}
+    updated = {
+        **existing,
+        "full_name": profile.full_name,
+        "category": profile.category,
+        "preferences": profile.preferences,
+    }
+    if supabase:
+        try:
+            supabase.table("users").upsert(updated).execute()
+        except Exception:
+            mock_db["users"][user_id] = updated
+    else:
+        mock_db["users"][user_id] = updated
+    return {"message": "Cập nhật hồ sơ thành công", "profile": updated}
 
 @app.post("/chat")
 async def chat_api(body: ChatMessage, current_user: dict = Depends(get_current_user)):
@@ -402,13 +484,13 @@ async def chat_api(body: ChatMessage, current_user: dict = Depends(get_current_u
             ai_response = model.generate_content(message)
             reply_text = ai_response.text if ai_response and ai_response.text else "Tôi không thể xử lý yêu cầu."
         except Exception as e:
-            raise HTTPException(status_code=502, detail=f"Lỗi dịch vụ AI: {str(e)[:100]}")
+            raise HTTPException(status_code=502, detail=ai_service_error_message(e))
         
         try: ai_sentiment = analyze_sentiment(reply_text)
         except Exception: ai_sentiment = {"emotion": "unknown"}
         
         timestamp = datetime.now().isoformat()
-        message_id = f"{user_id}_{int(time.time() * 1000)}"
+        message_id = f"{user_id}_{uuid.uuid4().hex}"
 
         user_msg = {"user_id": user_id, "message_id": f"{message_id}_user", "content": message, "role": "user", "sentiment": user_sentiment, "created_at": timestamp}
         ai_msg = {"user_id": user_id, "message_id": f"{message_id}_ai", "content": reply_text, "role": "assistant", "sentiment": ai_sentiment, "created_at": timestamp}
@@ -425,6 +507,7 @@ async def chat_api(body: ChatMessage, current_user: dict = Depends(get_current_u
             mock_db["messages"][user_id].extend([user_msg, ai_msg])
         
         return {
+            "user_id": user_id,
             "ai_response": reply_text,
             "timestamp": timestamp,
             "message_id": message_id,
@@ -432,6 +515,15 @@ async def chat_api(body: ChatMessage, current_user: dict = Depends(get_current_u
         }
     except HTTPException: raise
     except Exception as e: raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/chat-history")
+async def chat_history(current_user: dict = Depends(require_current_user)):
+    return {"history": get_user_messages(current_user["user_id"])}
+
+@app.get("/chat-summary")
+async def chat_summary(current_user: dict = Depends(require_current_user)):
+    messages = get_user_messages(current_user["user_id"])
+    return {"summary": generate_summary(messages) if messages else "Chưa có cuộc trò chuyện để tóm tắt."}
 
 @app.post("/ocr")
 async def ocr_api(file: UploadFile = File(...), current_user: dict = Depends(get_current_user)):
@@ -446,7 +538,10 @@ async def ocr_api(file: UploadFile = File(...), current_user: dict = Depends(get
             
         img = Image.open(io.BytesIO(img_data))
         prompt = "Hãy đọc và trích xuất toàn bộ văn bản có trong ảnh này một cách chính xác nhất."
-        ocr_response = model.generate_content([prompt, img])
+        try:
+            ocr_response = model.generate_content([prompt, img])
+        except Exception as exc:
+            raise HTTPException(status_code=502, detail=ai_service_error_message(exc))
         
         log_entry = {"user_id": user_id, "file_name": file.filename, "extracted_text": ocr_response.text, "created_at": datetime.now().isoformat()}
         

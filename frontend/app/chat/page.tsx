@@ -1,35 +1,21 @@
 "use client";
 
 import Image from "next/image";
-import { useRouter } from "next/navigation";
-import {
-  ClipboardEvent,
-  useEffect,
-  useMemo,
-  useRef,
-  useState,
-} from "react";
+import Link from "next/link";
+import { ChangeEvent, useEffect, useMemo, useRef, useState } from "react";
 
 import { MetorLogo } from "@/components/metor/MetorLogo";
 import { useAuth } from "@/context/AuthContext";
-import { ocrRequest } from "@/lib/api";
-import { supabase } from "@/lib/supabase";
+import { chatRequest, ChatHistoryItem, getChatHistoryRequest, ocrRequest } from "@/lib/api";
 
-type ChatMode = "chat" | "sentiment" | "summary" | "ocr";
-
-type SentimentResult = {
-  emotion?: string;
-  polarity?: number;
-  subjectivity?: number;
-};
+type ChatMode = "fast" | "expert" | "image";
 
 type ChatMessage = {
   id: string;
   role: "user" | "assistant" | "system";
   content: string;
-  timestamp?: string;
+  timestamp: string;
   imageUrl?: string;
-  sentiment?: SentimentResult;
 };
 
 type ChatConversation = {
@@ -37,398 +23,318 @@ type ChatConversation = {
   title: string;
   messages: ChatMessage[];
   updatedAt: number;
-  created_at?: string;
-  pinnedAt?: string | null;
-  pinned?: boolean;
 };
 
-const CHAT_STORAGE_KEY = "mp_chats";
+const modes: Array<{ value: ChatMode; icon: string; label: string }> = [
+  { value: "fast", icon: "bolt", label: "Nhanh" },
+  { value: "expert", icon: "diamond", label: "Chuyên gia" },
+  { value: "image", icon: "image", label: "Hình ảnh" },
+];
 
 export default function ChatPage() {
-  const router = useRouter();
-  const { token, logout } = useAuth();
-
+  const { token, user, logout } = useAuth();
+  const [mode, setMode] = useState<ChatMode>("fast");
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [input, setInput] = useState("");
   const [history, setHistory] = useState<ChatConversation[]>([]);
-  const [activeConversationId, setActiveConversationId] = useState<
-    string | null
-  >(null);
-  const [historyLoaded, setHistoryLoaded] = useState(false);
+  const [activeConversationId, setActiveConversationId] = useState<string | null>(null);
+  const [attachedFile, setAttachedFile] = useState<File | null>(null);
+  const [imagePreview, setImagePreview] = useState<string | null>(null);
+  const [historyReady, setHistoryReady] = useState(false);
+  const [loadedHistoryKey, setLoadedHistoryKey] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
-
+  const fileInputRef = useRef<HTMLInputElement>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
 
-  const apiBaseUrl = useMemo(
-    () => (process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:8000").replace(/\/$/, ""),
-    []
+  const storageKey = useMemo(
+    () => `mentorpro-chats:${user?.user_id ?? user?.email ?? "guest"}`,
+    [user?.email, user?.user_id],
   );
-
-  // =========================
-  // LOAD CHAT FROM SUPABASE
-  // =========================
-
-  // Handle OAuth fragment fallback (in case redirect returned hash to /chat)
-  useEffect(() => {
-    async function handleFragment() {
-      if (typeof window === "undefined") return;
-
-      const hash = window.location.hash;
-      if (!hash || !hash.includes("access_token")) return;
-
-      const params = new URLSearchParams(hash.slice(1));
-      const access_token = params.get("access_token");
-      const refresh_token = params.get("refresh_token");
-
-      if (access_token) {
-        try {
-          await supabase.auth.setSession({
-            access_token: access_token,
-            refresh_token: refresh_token || undefined,
-          } as any);
-        } catch (e) {
-          console.error("Failed to set Supabase session from fragment", e);
-        }
-
-        window.history.replaceState(null, "", window.location.pathname + window.location.search);
-      }
-    }
-
-    void handleFragment();
-  }, []);
+  const hasBackendHistory = Boolean(token && user?.user_id && user.user_id !== "guest");
+  const displayName = user?.full_name || user?.username || (token ? "Tài khoản" : "Khách dùng thử");
 
   useEffect(() => {
     queueMicrotask(async () => {
-      const user = JSON.parse(
-        localStorage.getItem("user") || "{}"
-      );
+      setMessages([]);
+      setActiveConversationId(null);
 
-      if (!user?.id) {
-        setHistoryLoaded(true);
+      if (hasBackendHistory && token && user?.user_id) {
+        try {
+          const data = await getChatHistoryRequest(token);
+          const conversation = toAccountConversation(user.user_id, data.history);
+          setHistory(conversation ? [conversation] : []);
+        } catch {
+          setHistory([]);
+        } finally {
+          setLoadedHistoryKey(storageKey);
+          setHistoryReady(true);
+        }
         return;
       }
 
-      const { data, error } = await supabase
-        .from("chat_history")
-        .select("*")
-        .eq("user_id", user.id)
-        .order("updated_at", {
-          ascending: false,
-        });
-
-      if (error) {
-        console.error(error);
-        setHistoryLoaded(true);
-        return;
+      try {
+        const saved = localStorage.getItem(storageKey);
+        setHistory(saved ? (JSON.parse(saved) as ChatConversation[]) : []);
+      } catch {
+        setHistory([]);
       }
-
-      const conversations = (data || []).map((item: any) => ({
-        id: item.id,
-        title: item.title,
-        messages: item.messages || [],
-        updatedAt: new Date(item.updated_at).getTime(),
-        created_at: item.created_at,
-      }));
-
-      setHistory(conversations);
-      setHistoryLoaded(true);
+      setLoadedHistoryKey(storageKey);
+      setHistoryReady(true);
     });
-  }, []);
-
-  // =========================
-  // SAVE CHAT TO SUPABASE
-  // =========================
+  }, [hasBackendHistory, storageKey, token, user?.user_id]);
 
   useEffect(() => {
-    if (!historyLoaded) return;
+    if (!historyReady || hasBackendHistory || loadedHistoryKey !== storageKey) return;
+    localStorage.setItem(storageKey, JSON.stringify(history));
+  }, [hasBackendHistory, history, historyReady, loadedHistoryKey, storageKey]);
 
-    const saveHistory = async () => {
-      const user = JSON.parse(
-        localStorage.getItem("user") || "{}"
-      );
+  useEffect(() => {
+    bottomRef.current?.scrollIntoView({ behavior: "smooth" });
+  }, [messages, isLoading]);
 
-      if (!user?.id) return;
-
-      for (const conversation of history) {
-        await supabase
-          .from("chat_history")
-          .upsert({
-            id: conversation.id,
-            user_id: user.id,
-            title: conversation.title,
-            messages: conversation.messages,
-            updated_at: new Date().toISOString(),
-          });
-      }
+  useEffect(() => {
+    return () => {
+      if (imagePreview) URL.revokeObjectURL(imagePreview);
     };
+  }, [imagePreview]);
 
-    saveHistory();
-  }, [history, historyLoaded]);
-
-  // =========================
-  // AUTO SAVE CURRENT CHAT
-  // =========================
-
-  useEffect(() => {
-    if (!historyLoaded || !messages.length) return;
-
+  const updateConversation = (conversationId: string, nextMessages: ChatMessage[]) => {
     setHistory((current) => {
-      const title = getConversationTitle(messages);
-
       const conversation: ChatConversation = {
-        id:
-          activeConversationId ??
-          crypto.randomUUID(),
-        title,
-        messages,
+        id: conversationId,
+        title: getConversationTitle(nextMessages),
+        messages: nextMessages,
         updatedAt: Date.now(),
       };
-
-      return [
-        conversation,
-        ...current.filter(
-          (item) => item.id !== conversation.id
-        ),
-      ];
+      return [conversation, ...current.filter((item) => item.id !== conversationId)];
     });
-  }, [messages]);
+  };
 
-  // =========================
-  // AUTO SCROLL
-  // =========================
-
-  useEffect(() => {
-    bottomRef.current?.scrollIntoView({
-      behavior: "smooth",
+  const appendMessage = (conversationId: string, message: ChatMessage) => {
+    setMessages((current) => {
+      const next = [...current, message];
+      updateConversation(conversationId, next);
+      return next;
     });
-  }, [messages]);
+  };
 
-  // =========================
-  // SEND MESSAGE
-  // =========================
+  const handleFileChange = (event: ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file || !file.type.startsWith("image/")) return;
+    if (imagePreview) URL.revokeObjectURL(imagePreview);
+    setAttachedFile(file);
+    setImagePreview(URL.createObjectURL(file));
+    setMode("image");
+    event.target.value = "";
+  };
+
+  const clearAttachment = () => {
+    if (imagePreview) URL.revokeObjectURL(imagePreview);
+    setAttachedFile(null);
+    setImagePreview(null);
+  };
 
   const handleSend = async () => {
     const text = input.trim();
+    if (isLoading || (!text && !attachedFile)) return;
 
-    if (!text || isLoading) return;
-
+    const conversationId = activeConversationId ?? crypto.randomUUID();
     const requestId = crypto.randomUUID();
+    if (!activeConversationId) setActiveConversationId(conversationId);
 
-    setMessages((current) => [
-      ...current,
-      {
-        id: `${requestId}-user`,
-        role: "user",
-        content: text,
-        timestamp: new Date().toISOString(),
-      },
-    ]);
+    const userContent = attachedFile
+      ? text || `Đọc nội dung trong ảnh ${attachedFile.name}`
+      : text;
+    appendMessage(conversationId, {
+      id: `${requestId}-user`,
+      role: "user",
+      content: userContent,
+      timestamp: new Date().toISOString(),
+      imageUrl: imagePreview ?? undefined,
+    });
 
     setInput("");
     setIsLoading(true);
 
     try {
-      const formData = new FormData();
-
-      formData.append(
-        "message",
-        `Trả lời như AI chuyên nghiệp:\n\n${text}`
-      );
-
-      const response = await fetch(
-        `${apiBaseUrl}/chat`,
-        {
-          method: "POST",
-          headers: token
-            ? {
-                Authorization: `Bearer ${token}`,
-              }
-            : undefined,
-          body: formData,
-        }
-      );
-
-      if (!response.ok) {
-        throw new Error(
-          "Không thể gửi tin nhắn."
-        );
-      }
-
-      const data = await response.json();
-
-      setMessages((current) => [
-        ...current,
-        {
+      if (attachedFile) {
+        const response = await ocrRequest(attachedFile, token);
+        appendMessage(conversationId, {
           id: `${requestId}-assistant`,
           role: "assistant",
-          content:
-            data.ai_response ||
-            "AI chưa phản hồi.",
+          content: response.text || "Không tìm thấy văn bản trong ảnh.",
           timestamp: new Date().toISOString(),
-        },
-      ]);
+        });
+        clearAttachment();
+      } else {
+        const prompt = mode === "expert" ? `Hãy trả lời chuyên sâu, có cấu trúc rõ ràng:\n\n${text}` : text;
+        const response = await chatRequest(prompt, token);
+        if (hasBackendHistory && response.user_id !== user?.user_id) {
+          throw new Error("Phiên đăng nhập không khớp người dùng lưu lịch sử.");
+        }
+        appendMessage(conversationId, {
+          id: `${requestId}-assistant`,
+          role: "assistant",
+          content: response.ai_response || "MentorPro chưa có phản hồi.",
+          timestamp: response.timestamp || new Date().toISOString(),
+        });
+      }
     } catch (error) {
-      setMessages((current) => [
-        ...current,
-        {
-          id: `${requestId}-system`,
-          role: "system",
-          content:
-            error instanceof Error
-              ? error.message
-              : "Có lỗi xảy ra.",
-        },
-      ]);
+      appendMessage(conversationId, {
+        id: `${requestId}-error`,
+        role: "system",
+        content: error instanceof Error ? error.message : "Không thể xử lý yêu cầu.",
+        timestamp: new Date().toISOString(),
+      });
     } finally {
       setIsLoading(false);
     }
   };
 
-  // =========================
-  // NEW CHAT
-  // =========================
-
   const handleNewChat = () => {
+    clearAttachment();
     setMessages([]);
     setInput("");
     setActiveConversationId(null);
+    setMode("fast");
   };
 
-  // =========================
-  // SELECT CHAT
-  // =========================
-
-  const selectConversation = (
-    conversation: ChatConversation
-  ) => {
+  const selectConversation = (conversation: ChatConversation) => {
+    clearAttachment();
     setMessages(conversation.messages);
-    setActiveConversationId(
-      conversation.id
-    );
-  };
-
-  // =========================
-  // LOGOUT
-  // =========================
-
-  const handleLogout = () => {
-    logout();
-
-    localStorage.removeItem("user");
-
-    router.push("/login");
+    setActiveConversationId(conversation.id);
   };
 
   return (
-    <main className="metor-chat-page">
+    <main className={`metor-chat-page ${messages.length ? "has-chat" : "empty-chat"}`}>
       <aside className="metor-chat-sidebar">
         <div className="chat-sidebar-top">
           <MetorLogo />
+          <div className="sidebar-actions">
+            <button type="button" aria-label="Tìm kiếm lịch sử">
+              <UiIcon name="search" />
+            </button>
+            <Link href="/profile" aria-label="Hồ sơ">
+              <UiIcon name="panel" />
+            </Link>
+          </div>
         </div>
 
-        <button
-          type="button"
-          className="new-chat-button"
-          onClick={handleNewChat}
-        >
-          + Trò chuyện mới
+        <button type="button" className="new-chat-button" onClick={handleNewChat}>
+          <UiIcon name="plus" />
+          Trò chuyện mới
         </button>
 
-        <div className="chat-history">
+        <div className={`chat-history ${history.length ? "" : "is-empty"}`}>
+          {history.length ? <span>Gần đây</span> : null}
           {history.map((conversation) => (
             <button
+              type="button"
               key={conversation.id}
-              className={
-                conversation.id ===
-                activeConversationId
-                  ? "chat-history-item active"
-                  : "chat-history-item"
-              }
-              onClick={() =>
-                selectConversation(
-                  conversation
-                )
-              }
+              className={`chat-history-item ${conversation.id === activeConversationId ? "active" : ""}`}
+              onClick={() => selectConversation(conversation)}
             >
               {conversation.title}
             </button>
           ))}
+          {!history.length ? <p className="no-chat-history">Chưa có cuộc trò chuyện</p> : null}
         </div>
 
-        <button
-          type="button"
-          onClick={handleLogout}
-        >
-          Đăng xuất
-        </button>
+        <div className="sidebar-user">
+          <span className="user-avatar">{getInitial(displayName)}</span>
+          <span>{displayName}</span>
+          <button type="button" onClick={() => void logout()} aria-label="Đăng xuất">
+            <UiIcon name="more" />
+          </button>
+        </div>
       </aside>
 
       <section className="metor-chat-main">
-        <div className="message-list">
-          {messages.map((message) => (
-            <article
-              key={message.id}
-              className={`chat-message ${message.role}`}
-            >
-              <div className="message-bubble">
-                {message.imageUrl && (
-                  <Image
-                    src={message.imageUrl}
-                    alt="Ảnh"
-                    width={280}
-                    height={200}
-                    unoptimized
-                  />
-                )}
-
-                <p>{message.content}</p>
+        <div className={`chat-thread ${messages.length ? "has-messages" : "empty-state"}`}>
+          {!messages.length ? (
+            <div className="chat-start">
+              <div className="chat-start-title">
+                <MetorLogo compact />
+                <h1>Chế độ Nhanh</h1>
               </div>
-            </article>
-          ))}
-
-          {isLoading && (
-            <article className="chat-message assistant">
-              <div className="message-bubble">
-                <p>MentorPro đang suy nghĩ...</p>
-              </div>
-            </article>
+              <ModeTabs mode={mode} onChange={setMode} />
+            </div>
+          ) : (
+            <div className="message-list">
+              {messages.map((message) => (
+                <article key={message.id} className={`chat-message ${message.role}`}>
+                  <div className="message-bubble">
+                    {message.imageUrl ? (
+                      <Image src={message.imageUrl} alt="Ảnh đã tải lên" width={280} height={180} unoptimized />
+                    ) : null}
+                    <p>{message.content}</p>
+                  </div>
+                </article>
+              ))}
+              {isLoading ? (
+                <article className="chat-message assistant">
+                  <div className="message-bubble typing-bubble">
+                    <span /><span /><span />
+                  </div>
+                </article>
+              ) : null}
+              <div ref={bottomRef} />
+            </div>
           )}
-
-          <div ref={bottomRef} />
         </div>
 
-        <div className="metor-composer-wrap">
+        <div className={`metor-composer-wrap ${messages.length ? "" : "start-composer"}`}>
+          {imagePreview ? (
+            <div className="composer-preview">
+              <Image src={imagePreview} alt="Ảnh đính kèm" width={52} height={52} unoptimized />
+              <span>{attachedFile?.name}</span>
+              <button type="button" onClick={clearAttachment} aria-label="Bỏ ảnh">X</button>
+            </div>
+          ) : null}
           <div className="metor-composer">
             <textarea
               value={input}
-              onChange={(event) =>
-                setInput(event.target.value)
-              }
+              rows={2}
+              onChange={(event) => setInput(event.target.value)}
               onKeyDown={(event) => {
-                if (
-                  event.key === "Enter" &&
-                  !event.shiftKey
-                ) {
+                if (event.key === "Enter" && !event.shiftKey) {
                   event.preventDefault();
                   void handleSend();
                 }
               }}
-              placeholder="Nhắn tin cho MentorPro"
-              rows={2}
+              placeholder={mode === "image" ? "Tải ảnh hoặc nhập yêu cầu cho MentorPro" : "Nhắn tin cho MentorPro"}
             />
-
-            <button
-              type="button"
-              className="send-chat-button"
-              disabled={
-                isLoading || !input.trim()
-              }
-              onClick={() =>
-                void handleSend()
-              }
-            >
-              Gửi
-            </button>
+            <div className="composer-bottom">
+              <div className="composer-chips">
+                <button type="button" className={mode === "expert" ? "active" : ""} onClick={() => setMode("expert")}>
+                  <UiIcon name="spark" /> Suy nghĩ sâu
+                </button>
+                <button type="button" className={mode === "fast" ? "active" : ""} onClick={() => setMode("fast")}>
+                  <UiIcon name="globe" /> Trả lời nhanh
+                </button>
+              </div>
+              <div className="composer-tools">
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  accept="image/*"
+                  className="sr-only"
+                  onChange={handleFileChange}
+                />
+                <button type="button" onClick={() => fileInputRef.current?.click()} aria-label="Đính kèm ảnh">
+                  <UiIcon name="paperclip" />
+                </button>
+                <button
+                  type="button"
+                  className="send-chat-button"
+                  disabled={isLoading || (!input.trim() && !attachedFile)}
+                  onClick={() => void handleSend()}
+                  aria-label="Gửi"
+                >
+                  <UiIcon name="arrow" />
+                </button>
+              </div>
+            </div>
           </div>
         </div>
       </section>
@@ -436,20 +342,69 @@ export default function ChatPage() {
   );
 }
 
-function getConversationTitle(
-  messages: ChatMessage[]
-) {
-  const firstUserMessage = messages.find(
-    (message) => message.role === "user"
+function ModeTabs({ mode, onChange }: { mode: ChatMode; onChange: (mode: ChatMode) => void }) {
+  return (
+    <div className="mode-tabs" aria-label="Chế độ chat">
+      {modes.map((item) => (
+        <button
+          type="button"
+          key={item.value}
+          className={mode === item.value ? "active" : ""}
+          onClick={() => onChange(item.value)}
+        >
+          <UiIcon name={item.icon} />
+          {item.label}
+        </button>
+      ))}
+    </div>
   );
+}
 
-  if (!firstUserMessage) return "";
+function UiIcon({ name }: { name: string }) {
+  const paths: Record<string, string> = {
+    plus: "M12 5v14M5 12h14",
+    search: "M11 4a7 7 0 1 0 4.9 12L21 21M16 16l.1.1",
+    panel: "M4 5h16v14H4zM14 5v14",
+    more: "M6 12h.01M12 12h.01M18 12h.01",
+    bolt: "m13 2-8 12h7l-1 8 8-12h-7z",
+    diamond: "M12 4 20 10 12 20 4 10z",
+    image: "M4 5h16v14H4zM7 16l4-4 3 3 2-2 3 3M9 9h.01",
+    spark: "M12 3 14.5 9.5 21 12l-6.5 2.5L12 21l-2.5-6.5L3 12l6.5-2.5z",
+    globe: "M12 3a9 9 0 1 0 0 18 9 9 0 0 0 0-18ZM3 12h18M12 3c3 3 3 15 0 18M12 3c-3 3-3 15 0 18",
+    paperclip: "M9 17 17 9a3 3 0 0 0-4-4l-8 8a5 5 0 0 0 7 7l8-8",
+    arrow: "M12 19V5M6 11l6-6 6 6",
+  };
+  return (
+    <svg className="ui-icon" viewBox="0 0 24 24" aria-hidden="true">
+      <path d={paths[name]} fill="none" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.8" />
+    </svg>
+  );
+}
 
-  const title = firstUserMessage.content
-    .replace(/\s+/g, " ")
-    .trim();
+function getConversationTitle(messages: ChatMessage[]) {
+  const content = messages.find((message) => message.role === "user")?.content ?? "Cuộc trò chuyện mới";
+  const clean = content.replace(/\s+/g, " ").trim();
+  return clean.length > 35 ? `${clean.slice(0, 32)}...` : clean;
+}
 
-  return title.length > 64
-    ? `${title.slice(0, 61)}...`
-    : title;
+function toAccountConversation(userId: string, history: ChatHistoryItem[]): ChatConversation | null {
+  if (!history.length) return null;
+
+  const messages: ChatMessage[] = history.map((item) => ({
+    id: item.message_id,
+    role: item.role,
+    content: item.content,
+    timestamp: item.created_at ?? new Date().toISOString(),
+  }));
+
+  return {
+    id: `account-history:${userId}`,
+    title: "Lịch sử tài khoản",
+    messages,
+    updatedAt: new Date(messages[messages.length - 1].timestamp).getTime(),
+  };
+}
+
+function getInitial(name: string) {
+  return name.trim().charAt(0).toUpperCase() || "M";
 }

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""
+r"""
 List available Gemini models and their supported generation methods.
 Run:
   .\.venv\Scripts\Activate.ps1
@@ -17,24 +17,24 @@ if not GEMINI_API_KEY:
     sys.exit(1)
 
 try:
-    import google.generativeai as genai
+    from google import genai
 except Exception as e:
-    print("google.generativeai package not installed:", e)
+    print("google-genai package not installed:", e)
     sys.exit(1)
 
 print("Configuring genai...")
-genai.configure(api_key=GEMINI_API_KEY)
+client = genai.Client(api_key=GEMINI_API_KEY)
 
 print("Listing models...")
 try:
-    models = list(genai.list_models())
+    models = list(client.models.list())
     if not models:
         print("No models returned by the API.")
         sys.exit(0)
 
     for m in models:
         name = getattr(m, "name", str(m))
-        methods = getattr(m, "supported_generation_methods", None)
+        methods = getattr(m, "supported_actions", None)
         print("\nModel:", name)
         print("  Supported methods:", methods)
         # Print any extra useful metadata

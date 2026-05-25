@@ -32,29 +32,11 @@ export default function AuthCallbackPage() {
           console.error("Failed to set Supabase session", e);
         }
 
-        // 2. Trao đổi Supabase token lấy Backend JWT (Ép buộc cấu trúc API cho Hugging Face)
+        // 2. Trao đổi Supabase token lấy backend JWT.
         try {
-          // Lấy cấu hình URL gốc, dọn dẹp các ký tự gạch chéo thừa thãi
-          let apiBase = (process.env.NEXT_PUBLIC_API_BASE_URL ?? "https://qngduc-mentorpro.hf.space").trim();
-          apiBase = apiBase.replace(/\/$/, "");
+          const apiBase = (process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:8000").trim().replace(/\/$/, "");
 
-          // FIX ĐỨT ĐIỂM 404: Ép buộc tất cả các request chạy trên hf.space PHẢI đi qua root /api
-          let finalExchangeUrl = "";
-          if (apiBase.includes("hf.space")) {
-            // Nếu URL đã có sẵn /api thì giữ nguyên, nếu chưa có thì chèn vào
-            if (apiBase.endsWith("/api")) {
-              finalExchangeUrl = `${apiBase}/auth/exchange`;
-            } else {
-              finalExchangeUrl = `${apiBase}/api/auth/exchange`;
-            }
-          } else {
-            // Dành cho môi trường chạy Localhost dev thông thường
-            finalExchangeUrl = `${apiBase}/auth/exchange`;
-          }
-
-          console.log("🚀 Đang gửi request xác thực tới đích:", finalExchangeUrl);
-
-          const resp = await fetch(finalExchangeUrl, {
+          const resp = await fetch(`${apiBase}/auth/exchange`, {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ access_token }),
@@ -66,15 +48,14 @@ export default function AuthCallbackPage() {
               // Ghi chính xác các key dữ liệu đăng nhập cho hệ thống
               window.localStorage.setItem("token", data.token ?? "");
               window.localStorage.setItem("mentorpro-user", JSON.stringify(data.user ?? {}));
-              console.log("✅ Trao đổi mã xác thực JWT Backend thành công!");
             } catch (e) {
               console.error("Lỗi lưu dữ liệu vào LocalStorage:", e);
             }
           } else {
-            console.error("❌ Backend trả về lỗi khi đổi token:", resp.status, await resp.text());
+            console.error("Backend trả về lỗi khi đổi token:", resp.status, await resp.text());
           }
         } catch (e) {
-          console.error("💥 Lỗi kết nối mạng khi gọi API exchange:", e);
+          console.error("Lỗi kết nối mạng khi gọi API exchange:", e);
         }
       }
 

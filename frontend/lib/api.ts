@@ -17,8 +17,16 @@ export type UserProfile = {
 };
 
 export type ChatApiResponse = {
+  user_id?: string;
   ai_response?: string;
+  timestamp?: string;
+  message_id?: string;
   sentiment?: {
+    user_sentiment?: {
+      emotion?: string;
+      polarity?: number;
+      subjectivity?: number;
+    };
     ai_sentiment?: {
       emotion?: string;
       polarity?: number;
@@ -29,6 +37,13 @@ export type ChatApiResponse = {
 
 export type OcrApiResponse = {
   text?: string;
+};
+
+export type ChatHistoryItem = {
+  message_id: string;
+  content: string;
+  role: "user" | "assistant";
+  created_at?: string;
 };
 
 const API_BASE_URL = (process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:8000").replace(/\/$/, "");
@@ -72,13 +87,19 @@ export async function updateProfileRequest(
 }
 
 export async function chatRequest(message: string, token?: string | null) {
-  const body = new FormData();
-  body.append("message", message);
-
   return apiRequest<ChatApiResponse>("/chat", {
     method: "POST",
-    headers: token ? { Authorization: `Bearer ${token}` } : undefined,
-    body,
+    headers: {
+      "Content-Type": "application/json",
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+    },
+    body: JSON.stringify({ message }),
+  });
+}
+
+export async function getChatHistoryRequest(token: string) {
+  return apiRequest<{ history: ChatHistoryItem[] }>("/chat-history", {
+    headers: { Authorization: `Bearer ${token}` },
   });
 }
 

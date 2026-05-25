@@ -1,6 +1,5 @@
 import type { Metadata } from "next";
 import { ReactNode } from "react";
-import Script from "next/script";
 import "./globals.css";
 
 import { AuthProvider } from "@/context/AuthContext";
@@ -21,13 +20,6 @@ export default function RootLayout({ children }: { children: ReactNode }) {
         <AuthProvider>
           {children}
         </AuthProvider>
-
-        <Script
-          strategy="afterInteractive"
-          dangerouslySetInnerHTML={{
-            __html: `(function(){try{var html=document.documentElement; if(html&&html.hasAttribute('webcrx')) html.removeAttribute('webcrx');}catch(e){}})();`,
-          }}
-        />
       </body>
     </html>
   );

@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { MetorLogo } from "@/components/metor/MetorLogo";
+import { getChatHistoryRequest } from "@/lib/api";
 
 type HistoryItem = {
   id?: string;
@@ -21,11 +22,12 @@ export default function HistoryPage() {
     const fetchHistory = async () => {
       try {
         const token = localStorage.getItem("token");
-        const res = await fetch("http://localhost:8000/chat-history", {
-          headers: token ? { Authorization: `Bearer ${token}` } : undefined,
-        });
-        const data = (await res.json()) as { history?: HistoryItem[] } | HistoryItem[];
-        setHistory(Array.isArray(data) ? data : data.history ?? []);
+        if (!token) {
+          setHistory([]);
+          return;
+        }
+        const data = await getChatHistoryRequest(token);
+        setHistory(data.history);
       } finally {
         setIsLoading(false);
       }

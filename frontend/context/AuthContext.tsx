@@ -31,7 +31,7 @@ type AuthContextValue = {
 
   signInWithGoogle: () => Promise<void>;
 
-  logout: () => void;
+  logout: () => Promise<void>;
 
   refreshUser: () => Promise<void>;
 
@@ -63,6 +63,30 @@ export function AuthProvider({
 
   const [isReady, setIsReady] = useState(false);
 
+  const persistSession = useCallback(
+    (session: {
+      token?: string | null;
+      user: UserProfile;
+      demo?: boolean;
+    }) => {
+      const nextToken = session.token ?? null;
+
+      setToken(nextToken);
+      setUser(session.user);
+      setIsDemoSession(Boolean(session.demo));
+
+      if (nextToken) {
+        window.localStorage.setItem("token", nextToken);
+      } else {
+        window.localStorage.removeItem("token");
+      }
+
+      window.localStorage.setItem("mentorpro-user", JSON.stringify(session.user));
+      window.localStorage.setItem("metor-demo-login", session.demo ? "true" : "false");
+    },
+    []
+  );
+
   useEffect(() => {
     queueMicrotask(async () => {
       const storedToken =
@@ -78,6 +102,21 @@ export function AuthProvider({
       setToken(storedToken);
       setUser(storedUser);
       setIsDemoSession(demo);
+
+      if (storedToken && !demo) {
+        try {
+          const verifiedProfile = await getProfileRequest(storedToken);
+          persistSession({
+            token: storedToken,
+            user: { ...storedUser, ...verifiedProfile },
+          });
+        } catch {
+          setToken(null);
+          setUser(null);
+          window.localStorage.removeItem("token");
+          window.localStorage.removeItem("mentorpro-user");
+        }
+      }
 
       // ===== SUPABASE SESSION =====
       const {
@@ -121,7 +160,7 @@ export function AuthProvider({
     const {
       data: { subscription },
     } = supabase.auth.onAuthStateChange(
-      (_event, session) => {
+      (_event: string, session: { access_token: string; user: { id: string; email?: string; user_metadata?: { full_name?: string; name?: string } } } | null) => {
         if (session?.user) {
           const supabaseUser = session.user;
 
@@ -159,42 +198,7 @@ export function AuthProvider({
     return () => {
       subscription.unsubscribe();
     };
-  }, []);
-
-  const persistSession = useCallback(
-    (session: {
-      token?: string | null;
-      user: UserProfile;
-      demo?: boolean;
-    }) => {
-      const nextToken = session.token ?? null;
-
-      setToken(nextToken);
-      setUser(session.user);
-
-      setIsDemoSession(Boolean(session.demo));
-
-      if (nextToken) {
-        window.localStorage.setItem(
-          "token",
-          nextToken
-        );
-      } else {
-        window.localStorage.removeItem("token");
-      }
-
-      window.localStorage.setItem(
-        "mentorpro-user",
-        JSON.stringify(session.user)
-      );
-
-      window.localStorage.setItem(
-        "metor-demo-login",
-        session.demo ? "true" : "false"
-      );
-    },
-    []
-  );
+  }, [persistSession]);
 
   // ===== EMAIL/PASSWORD LOGIN =====
   const login = useCallback(

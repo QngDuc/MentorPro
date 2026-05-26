@@ -2,34 +2,35 @@
 # MentorPro Backend - main.py
 # API tư vấn AI, quản lý người dùng, chat, OCR
 # =============================
-
+# Mục tiêu: Cung cấp API mạnh mẽ, an toàn, dễ mở rộng cho ứng dụng MentorPro, tích hợp Gemini AI và Supabase.
 import os
 import io
 import time
-from datetime import datetime, timedelta, timezone
-from fastapi import FastAPI, UploadFile, File, HTTPException, Depends, Request
+from datetime import datetime, timedelta, timezone #thư viện để xử lý thời gian và múi giờ, quan trọng cho việc tạo token JWT với thời gian hết hạn chính xác và lưu trữ timestamp của tin nhắn và hoạt động người dùng.
+from fastapi import FastAPI, UploadFile, File, HTTPException, Depends, Request #thư viện chính để xây dựng API với FastAPI, bao gồm các lớp và hàm để xử lý yêu cầu, tệp tải lên, lỗi HTTP, phụ thuộc và truy cập thông tin yêu cầu.
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import HTTPBearer
 from dotenv import load_dotenv
-import jwt
+import jwt #thư viện để tạo và xác minh JSON Web Tokens (JWT), được sử dụng để quản lý xác thực người dùng và bảo vệ các endpoint API.
 from pydantic import BaseModel, EmailStr, Field
 import requests
-import google.generativeai as genai
+import google.generativeai as genai #thư viện chính để tương tác với dịch vụ Gemini AI của Google, cho phép tạo nội dung dựa trên văn bản và hình ảnh, được sử dụng trong các endpoint chat và OCR của API.
 from PIL import Image  # type: ignore
 from textblob import TextBlob
-import bcrypt
-from starlette.middleware.base import BaseHTTPMiddleware
-import hashlib
+import bcrypt #thư viện để băm mật khẩu người dùng một cách an toàn, đảm bảo rằng mật khẩu không được lưu trữ dưới dạng văn bản thuần túy trong cơ sở dữ liệu, tăng cường bảo mật cho hệ thống xác thực người dùng.
+from starlette.middleware.base import BaseHTTPMiddleware #thư viện để tạo middleware tùy chỉnh trong FastAPI, được sử dụng ở đây để thêm các header bảo mật vào tất cả các phản hồi HTTP, giúp bảo vệ ứng dụng khỏi các lỗ hổng phổ biến như clickjacking, sniffing và XSS.
+import hashlib #thư viện để tạo hash, được sử dụng trong việc tạo ID ẩn danh cho người dùng không xác thực dựa trên địa chỉ IP của họ, giúp theo dõi hoạt động của người dùng mà không cần yêu cầu đăng nhập.
 
 # --- CẤU HÌNH MÔI TRƯỜNG ---
 load_dotenv()  
 
 # ==== CẤU HÌNH BIẾN MÔI TRƯỜNG & GIỚI HẠN ====
+# Đảm bảo các biến môi trường quan trọng được thiết lập, cung cấp giá trị mặc định an toàn, và có thông báo lỗi rõ ràng nếu thiếu cấu hình cần thiết.
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")  
 JWT_SECRET_KEY = os.getenv("JWT_SECRET", "your-secret-key-change-in-production")  
 JWT_ALGORITHM = "HS256"  
 JWT_EXPIRATION_HOURS = 24  
-
+# Giới hạn tốc độ: tối đa 10 yêu cầu mỗi phút cho mỗi người dùng (dựa trên user_id hoặc IP nếu anonymous)
 MAX_REQUESTS_PER_MINUTE = 10  
 user_requests = {}  
 MAX_FILE_SIZE_BYTES = 10 * 1024 * 1024  # 10 MB
@@ -38,7 +39,7 @@ if not GEMINI_API_KEY:
     raise ValueError("Thiếu GEMINI_API_KEY trong cấu hình hệ thống!")
 
 # --- PYDANTIC MODELS ---
-
+# Các mô hình dữ liệu cho đăng ký, đăng nhập, hồ sơ người dùng, tin nhắn chat, và trao đổi token.
 class UserRegister(BaseModel):
     username: str
     email: EmailStr
@@ -61,7 +62,7 @@ class TokenExchange(BaseModel):
     access_token: str
 
 # --- UTILITY FUNCTIONS ---
-
+# Các hàm tiện ích cho hashing mật khẩu, tạo và xác minh JWT token, phân tích cảm xúc, tóm tắt cuộc trò chuyện, kiểm tra giới hạn tốc độ, và xử lý lỗi dịch vụ AI.
 def hash_password(password: str) -> str:
     hashed = bcrypt.hashpw(password.encode("utf-8"), bcrypt.gensalt())
     return hashed.decode("utf-8")
@@ -160,7 +161,7 @@ def check_rate_limit(user_id: str):
     user_requests[user_id].append(now)
 
 # --- CẤU HÌNH AI & DATABASE ---
-
+# Lựa chọn mô hình Gemini để sử dụng, mặc định là "gemini-2.5-flash" nếu không có biến môi trường nào được đặt
 model_to_use = os.getenv("GEMINI_MODEL", "gemini-2.5-flash")
 
 def init_model(model_name: str):
@@ -262,7 +263,7 @@ def get_user_messages(user_id: str) -> list:
             pass
     return mock_db["messages"].get(user_id, [])
 
-@app.get("/")
+@app.get("/") #Endpoint kiểm tra sức khỏe cơ bản, trả về trạng thái hoạt động của backend và thông tin cấu hình quan trọng để hỗ trợ việc giám sát và khắc phục sự cố hiệu quả hơn.
 def health_check():
     return {
         "status": "MentorPro Backend is live!",
@@ -270,7 +271,7 @@ def health_check():
         "version": "1.0.0"
     }
 
-@app.get("/health/detailed")
+@app.get("/health/detailed") #Endpoint kiểm tra sức khỏe chi tiết, trả về trạng thái của các dịch vụ chính như Gemini và Supabase, cũng như thông tin cấu hình quan trọng để hỗ trợ việc giám sát và khắc phục sự cố hiệu quả hơn.
 def detailed_health_check():
     return {
         "status": "ok",
@@ -287,7 +288,7 @@ def detailed_health_check():
 # AUTHENTICATION ENDPOINTS
 # =============================
 
-@app.post("/register")
+@app.post("/register") #Đăng ký người dùng mới, lưu thông tin vào Supabase hoặc mock DB, trả về JWT token nếu thành công
 async def register(user_data: UserRegister):
     try:
         if len(user_data.password) < 6:
@@ -325,7 +326,7 @@ async def register(user_data: UserRegister):
     except HTTPException: raise
     except Exception as e: raise HTTPException(status_code=500, detail=str(e))
 
-@app.post("/login")
+@app.post("/login") #Đăng nhập người dùng, xác thực bằng email và mật khẩu, trả về JWT token nếu thành công
 async def login(credentials: UserLogin):
     try:
         user = None
@@ -362,7 +363,7 @@ async def login(credentials: UserLogin):
     except Exception as e: raise HTTPException(status_code=500, detail=str(e))
 
 # ==== KHÔI PHỤC ROUTE AUTH EXCHANGE SỬA LỖI 404 ====
-@app.post("/auth/exchange")
+@app.post("/auth/exchange") 
 async def auth_exchange(payload: TokenExchange):
     """
     Trao đổi Supabase Access Token (OAuth) lấy JWT backend nội bộ.
@@ -419,7 +420,7 @@ async def auth_exchange(payload: TokenExchange):
 # CHAT & AI ENDPOINTS
 # =============================
 
-@app.get("/user/profile")
+@app.get("/user/profile") #Lấy hồ sơ người dùng hiện tại, nếu chưa có sẽ trả về mặc định để client dễ xử lý tạo mới
 async def get_profile(current_user: dict = Depends(require_current_user)):
     user_id = current_user["user_id"]
     user = find_user(user_id)
@@ -432,7 +433,7 @@ async def get_profile(current_user: dict = Depends(require_current_user)):
         }
     return {key: value for key, value in user.items() if key != "password_hash"}
 
-@app.put("/user/profile")
+@app.put("/user/profile") #Cập nhật hồ sơ người dùng
 async def update_profile(profile: UserProfile, current_user: dict = Depends(require_current_user)):
     user_id = current_user["user_id"]
     existing = find_user(user_id) or {"user_id": user_id}
@@ -451,7 +452,7 @@ async def update_profile(profile: UserProfile, current_user: dict = Depends(requ
         mock_db["users"][user_id] = updated
     return {"message": "Cập nhật hồ sơ thành công", "profile": updated}
 
-@app.post("/chat")
+@app.post("/chat") #Chat endpoint chính, xử lý tin nhắn người dùng, gọi Gemini, phân tích cảm xúc, lưu lịch sử
 async def chat_api(body: ChatMessage, current_user: dict = Depends(get_current_user)):
     message = body.message
     try:
@@ -468,6 +469,7 @@ async def chat_api(body: ChatMessage, current_user: dict = Depends(get_current_u
         try: user_sentiment = analyze_sentiment(message)
         except Exception: user_sentiment = {"emotion": "unknown"}
         
+        # Gọi Gemini để tạo phản hồi AI
         try:
             ai_response = model.generate_content(message)
             reply_text = ai_response.text if ai_response and ai_response.text else "Tôi không thể xử lý yêu cầu."
@@ -507,16 +509,16 @@ async def chat_api(body: ChatMessage, current_user: dict = Depends(get_current_u
     except HTTPException: raise
     except Exception as e: raise HTTPException(status_code=500, detail=str(e))
 
-@app.get("/chat-history")
+@app.get("/chat-history") #Lấy lịch sử trò chuyện của người dùng hiện tại, trả về dưới dạng danh sách tin nhắn đã phân loại theo vai trò (user/assistant)
 async def chat_history(current_user: dict = Depends(require_current_user)):
     return {"history": get_user_messages(current_user["user_id"])}
 
-@app.get("/chat-summary")
+@app.get("/chat-summary") #Tóm tắt cuộc trò chuyện gần đây nhất của người dùng, sử dụng Gemini để tạo tóm tắt chuyên sâu, nếu không có cuộc trò chuyện nào sẽ trả về thông báo phù hợp
 async def chat_summary(current_user: dict = Depends(require_current_user)):
     messages = get_user_messages(current_user["user_id"])
     return {"summary": generate_summary(messages) if messages else "Chưa có cuộc trò chuyện để tóm tắt."}
 
-@app.post("/ocr")
+@app.post("/ocr") #API để thực hiện OCR trên ảnh, trả về văn bản được trích xuất
 async def ocr_api(file: UploadFile = File(...), current_user: dict = Depends(get_current_user)):
     try:
         user_id = current_user["user_id"]

@@ -320,6 +320,8 @@ export default function ChatPage() {
                   accept="image/*"
                   className="sr-only"
                   onChange={handleFileChange}
+                  aria-label="Đính kèm ảnh"
+                  title="Đính kèm ảnh"
                 />
                 <button type="button" onClick={() => fileInputRef.current?.click()} aria-label="Đính kèm ảnh">
                   <UiIcon name="paperclip" />

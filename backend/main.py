@@ -477,7 +477,11 @@ async def chat_api(body: ChatMessage, current_user: dict = Depends(get_current_u
             ai_response = model.generate_content(message)
             reply_text = ai_response.text if ai_response and ai_response.text else "Tôi không thể xử lý yêu cầu."
         except Exception as e:
-            raise HTTPException(status_code=502, detail=ai_service_error_message(e))
+            print("GEMINI ERROR:", repr(e))
+            raise HTTPException(
+        status_code=502,
+        detail=str(e)
+    )
         
         try: ai_sentiment = analyze_sentiment(reply_text)
         except Exception: ai_sentiment = {"emotion": "unknown"}

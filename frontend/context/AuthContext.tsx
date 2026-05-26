@@ -103,21 +103,6 @@ export function AuthProvider({
       setUser(storedUser);
       setIsDemoSession(demo);
 
-      if (storedToken && !demo) {
-        try {
-          const verifiedProfile = await getProfileRequest(storedToken);
-          persistSession({
-            token: storedToken,
-            user: { ...storedUser, ...verifiedProfile },
-          });
-        } catch {
-          setToken(null);
-          setUser(null);
-          window.localStorage.removeItem("token");
-          window.localStorage.removeItem("mentorpro-user");
-        }
-      }
-
       // ===== SUPABASE SESSION =====
       const {
         data: { session },
@@ -143,6 +128,8 @@ export function AuthProvider({
                 email: data.user?.email ?? supabaseUser.email ?? "",
                 full_name: data.user?.full_name ?? supabaseUser.user_metadata?.full_name ?? supabaseUser.user_metadata?.name ?? "",
                 user_id: data.user?.user_id ?? supabaseUser.id,
+                avatar_url: supabaseUser.user_metadata?.avatar_url ?? supabaseUser.user_metadata?.picture ?? "",
+                auth_provider: "google",
               },
             });
           } else {
@@ -160,7 +147,7 @@ export function AuthProvider({
     const {
       data: { subscription },
     } = supabase.auth.onAuthStateChange(
-      (_event: string, session: { access_token: string; user: { id: string; email?: string; user_metadata?: { full_name?: string; name?: string } } } | null) => {
+      (_event: string, session: { access_token: string; user: { id: string; email?: string; user_metadata?: { full_name?: string; name?: string; avatar_url?: string; picture?: string } } } | null) => {
         if (session?.user) {
           const supabaseUser = session.user;
 
@@ -182,6 +169,8 @@ export function AuthProvider({
                     email: data.user?.email ?? supabaseUser.email ?? "",
                     full_name: data.user?.full_name ?? supabaseUser.user_metadata?.full_name ?? supabaseUser.user_metadata?.name ?? "",
                     user_id: data.user?.user_id ?? supabaseUser.id,
+                    avatar_url: supabaseUser.user_metadata?.avatar_url ?? supabaseUser.user_metadata?.picture ?? "",
+                    auth_provider: "google",
                   },
                 });
               } else {
@@ -203,6 +192,35 @@ export function AuthProvider({
   // ===== EMAIL/PASSWORD LOGIN =====
   const login = useCallback(
     async (email: string, password: string) => {
+      const { data: supabaseData } = await supabase.auth.signInWithPassword({
+        email,
+        password,
+      });
+
+      if (supabaseData.session?.user) {
+        const apiBase = (process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:8000").replace(/\/$/, "");
+        const response = await fetch(`${apiBase}/auth/exchange`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ access_token: supabaseData.session.access_token }),
+        });
+
+        if (response.ok) {
+          const data = await response.json();
+          persistSession({
+            token: data.token ?? null,
+            user: {
+              email: data.user?.email ?? supabaseData.session.user.email ?? email,
+              full_name: data.user?.full_name ?? supabaseData.session.user.user_metadata?.full_name ?? email.split("@")[0],
+              user_id: data.user?.user_id ?? supabaseData.session.user.id,
+              avatar_url: supabaseData.session.user.user_metadata?.avatar_url ?? supabaseData.session.user.user_metadata?.picture ?? "",
+              auth_provider: "email",
+            },
+          });
+          return;
+        }
+      }
+
       const data = await loginRequest(
         email,
         password
@@ -214,6 +232,7 @@ export function AuthProvider({
           email,
           full_name: data.full_name ?? "",
           user_id: data.user_id ?? "",
+          auth_provider: "email",
         },
       });
     },

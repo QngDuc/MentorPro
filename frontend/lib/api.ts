@@ -11,13 +11,13 @@ export type UserProfile = {
   email?: string;
   full_name?: string;
   avatar_url?: string;
+  auth_provider?: "google" | "email" | "demo";
   category?: string;
   preferences?: Record<string, unknown>;
   created_at?: string;
 };
 
 export type ChatApiResponse = {
-  user_id?: string;
   ai_response?: string;
   timestamp?: string;
   message_id?: string;
